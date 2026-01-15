@@ -1,323 +1,167 @@
-import React, { useState, useEffect } from 'react';
-import { Upload, ArrowRight, CheckCircle, AlertCircle, FileSpreadsheet, Calculator } from 'lucide-react';
+import streamlit as st
+import pandas as pd
 
-const PriceComparator = () => {
-  const [data, setData] = useState([]);
-  const [vendorList, setVendorList] = useState([]);
-  const [vendorA, setVendorA] = useState('');
-  const [vendorB, setVendorB] = useState('');
-  const [fileName, setFileName] = useState('');
-  const [quantities, setQuantities] = useState({}); // 수량 상태 관리
-  const [isLibLoaded, setIsLibLoaded] = useState(false);
+# 페이지 기본 설정
+st.set_page_config(
+    page_title="최저가 견적 산출기",
+    page_icon="⚖️",
+    layout="wide"
+)
 
-  // XLSX 라이브러리 동적 로드
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-    script.async = true;
-    script.onload = () => setIsLibLoaded(true);
-    document.body.appendChild(script);
+def main():
+    st.title("⚖️ 최저가 견적 산출기")
+    st.markdown("엑셀 파일을 업로드하고 **수량**을 입력하면 업체별 견적을 비교해줍니다.")
 
-    return () => {
-      document.body.removeChild(script);
-    }
-  }, []);
+    # 1. 파일 업로드 섹션
+    with st.container():
+        uploaded_file = st.file_uploader("단가표 엑셀 업로드 (xlsx, xls)", type=['xlsx', 'xls'])
 
-  // 데이터를 피벗(Pivot)하여 비교하기 쉬운 형태로 변환하는 함수
-  const processRawData = (rawData) => {
-    const pivoted = {};
-    const vendors = new Set();
+    if uploaded_file is not None:
+        try:
+            # 2. 데이터 로드 및 전처리
+            df_raw = pd.read_excel(uploaded_file)
+            
+            # 컬럼명 유연하게 찾기
+            cols = df_raw.columns.tolist()
+            vendor_col = next((c for c in cols if '업체' in c or '거래처' in c), None)
+            item_col = next((c for c in cols if '품목' in c or '품명' in c), None)
+            price_col = next((c for c in cols if '단가' in c or '매입가' in c or '가격' in c), None)
+            
+            # 규격 컬럼 찾기 (여러 개일 수 있음)
+            spec_cols = [c for c in cols if '규격' in c]
 
-    rawData.forEach(row => {
-      const vendor = row['업체명'] || row['거래처'] || row['매입처'];
-      const item = row['품목명'] || row['품명'] || row['상품명'];
-      const spec1 = row['규격1'] || row['규격'] || '';
-      const spec2 = row['규격2'] || '';
-      const price = row['단가'] || row['매입가'] || row['가격'];
+            if not (vendor_col and item_col and price_col):
+                st.error(f"필수 컬럼을 찾을 수 없습니다. (현재 컬럼: {cols})")
+                st.info("엑셀 파일에 '업체명', '품목명', '단가' 컬럼이 포함되어 있어야 합니다.")
+                return
 
-      if (!vendor || !item || !price) return;
+            # 규격 합치기 (규격1 + 규격2...)
+            def combine_specs(row):
+                specs = [str(row[c]) for c in spec_cols if pd.notna(row[c]) and str(row[c]).strip() != '']
+                return ' '.join(specs) if specs else '-'
 
-      vendors.add(vendor);
+            df_raw['통합규격'] = df_raw.apply(combine_specs, axis=1)
 
-      const specFull = spec2 ? `${spec1} ${spec2}` : spec1;
-      const key = `${item}__${specFull}`;
+            # 피벗 테이블 생성 (세로형 데이터 -> 가로형 데이터)
+            # 인덱스: 품목명, 통합규격 / 컬럼: 업체명 / 값: 단가
+            df_pivot = df_raw.pivot_table(
+                index=[item_col, '통합규격'], 
+                columns=vendor_col, 
+                values=price_col, 
+                aggfunc='first' # 중복 시 첫 번째 값 사용
+            ).reset_index()
 
-      if (!pivoted[key]) {
-        pivoted[key] = {
-          originalKey: key,
-          '품목명': item,
-          '규격': specFull
-        };
-      }
-      pivoted[key][vendor] = parseFloat(price);
-    });
+            # 수량 컬럼 추가 (기본값 1)
+            if '수량' not in df_pivot.columns:
+                df_pivot.insert(2, '수량', 1)
 
-    const processedData = Object.values(pivoted);
-    const uniqueVendors = Array.from(vendors);
+            # 업체 목록 추출
+            vendors = [c for c in df_pivot.columns if c not in [item_col, '통합규격', '수량']]
 
-    // 초기 수량 설정 (기본 1개)
-    const initialQuantities = {};
-    processedData.forEach(item => {
-      initialQuantities[item.originalKey] = 1;
-    });
+            if len(vendors) < 2:
+                st.warning("비교할 업체가 2개 이상 필요합니다.")
+                return
 
-    setData(processedData);
-    setVendorList(uniqueVendors);
-    setQuantities(initialQuantities);
+            st.divider()
 
-    if (uniqueVendors.length > 0) setVendorA(uniqueVendors[0]);
-    if (uniqueVendors.length > 1) setVendorB(uniqueVendors[1]);
-  };
+            # 3. 업체 선택 섹션
+            c1, c2 = st.columns(2)
+            with c1:
+                vendor_a = st.selectbox("비교 업체 1 (기준)", vendors, index=0)
+            with c2:
+                vendor_b = st.selectbox("비교 업체 2 (비교)", vendors, index=1 if len(vendors) > 1 else 0)
 
-  // 수량 변경 핸들러
-  const handleQuantityChange = (key, value) => {
-    const newQty = parseInt(value) || 0;
-    setQuantities(prev => ({
-      ...prev,
-      [key]: newQty
-    }));
-  };
+            st.divider()
 
-  const handleFileUpload = (e) => {
-    if (!isLibLoaded) {
-      alert("엑셀 처리 라이브러리가 아직 로딩 중입니다. 잠시만 기다려주세요.");
-      return;
-    }
-    const file = e.target.files[0];
-    if (!file) return;
+            # 4. 수량 입력 및 데이터 편집 (Data Editor)
+            st.subheader("📋 견적 시뮬레이션")
+            st.caption("아래 표의 '수량' 컬럼을 더블 클릭하여 수정하세요.")
 
-    setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const bstr = evt.target.result;
-      const XLSX = window.XLSX;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const jsonData = XLSX.utils.sheet_to_json(ws);
-      if (jsonData.length > 0) processRawData(jsonData);
-    };
-    reader.readAsBinaryString(file);
-  };
+            # 화면에 보여줄 컬럼 순서 정리
+            # 품목명 | 규격 | 수량 | 업체A단가 | 업체B단가
+            display_cols = [item_col, '통합규격', '수량', vendor_a, vendor_b]
+            
+            # 편집 가능한 데이터프레임 표시
+            edited_df = st.data_editor(
+                df_pivot[display_cols],
+                column_config={
+                    "수량": st.column_config.NumberColumn(
+                        "수량 (Qty)",
+                        help="필요한 수량을 입력하세요",
+                        min_value=0,
+                        step=1,
+                        format="%d"
+                    ),
+                    vendor_a: st.column_config.NumberColumn(f"{vendor_a} 단가", format="%d원"),
+                    vendor_b: st.column_config.NumberColumn(f"{vendor_b} 단가", format="%d원"),
+                },
+                disabled=[item_col, '통합규격', vendor_a, vendor_b], # 수량만 수정 가능하게 설정
+                use_container_width=True,
+                hide_index=True,
+                height=400
+            )
 
-  // 총액 계산 (수량 반영)
-  const calculateTotal = (vendorName) => {
-    return data.reduce((acc, row) => {
-      const price = row[vendorName] || 0;
-      const qty = quantities[row.originalKey] || 0;
-      return acc + (price * qty);
-    }, 0);
-  };
+            # 5. 계산 로직
+            # NaN(빈값)은 0으로 처리하여 계산
+            total_a = (edited_df['수량'] * edited_df[vendor_a].fillna(0)).sum()
+            total_b = (edited_df['수량'] * edited_df[vendor_b].fillna(0)).sum()
+            diff = total_a - total_b # 양수면 A가 더 비쌈(B가 저렴), 음수면 A가 더 저렴
 
-  const totalA = calculateTotal(vendorA);
-  const totalB = calculateTotal(vendorB);
-  const totalDiff = totalA - totalB;
+            # 6. 결과 요약 표시
+            st.divider()
+            st.subheader("📊 견적 비교 결과")
+            
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                st.metric(label=f"{vendor_a} 총 견적", value=f"{int(total_a):,}원")
+            with m2:
+                st.metric(
+                    label=f"{vendor_b} 총 견적", 
+                    value=f"{int(total_b):,}원",
+                    delta=f"{int(-diff):,}원" if diff != 0 else "동일",
+                    delta_color="inverse" # 저렴한 게 초록색(positive)으로 보이게 반전
+                )
+            with m3:
+                if diff > 0:
+                    st.success(f"✅ **{vendor_b}**가 **{int(diff):,}원** 더 저렴합니다!")
+                elif diff < 0:
+                    st.error(f"🚨 **{vendor_b}**가 **{int(abs(diff)):,}원** 더 비쌉니다.")
+                else:
+                    st.info("가격이 동일합니다.")
 
-  return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans text-slate-800">
-      <div className="max-w-7xl mx-auto space-y-6">
-        
-        {/* 헤더 섹션 */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-          <h1 className="text-2xl font-bold text-slate-900 mb-2 flex items-center gap-2">
-            <Calculator className="w-8 h-8 text-blue-600" />
-            최저가 견적 산출기
-          </h1>
-          <p className="text-slate-500 mb-6">
-            엑셀을 업로드하고 <strong>수량</strong>을 입력하면 총 견적을 비교해줍니다.
-          </p>
+            # 7. 상세 분석표 (차액 계산 포함)
+            st.subheader("🔍 상세 차액 분석")
+            
+            analysis_df = edited_df.copy()
+            analysis_df['단가차이'] = analysis_df[vendor_b].fillna(0) - analysis_df[vendor_a].fillna(0)
+            analysis_df['총차액'] = analysis_df['단가차이'] * analysis_df['수량']
+            
+            # 추천 업체 로직
+            def recommend(row):
+                if row['총차액'] < 0: return vendor_b
+                if row['총차액'] > 0: return vendor_a
+                return '-'
+            
+            analysis_df['추천'] = analysis_df.apply(recommend, axis=1)
 
-          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center bg-blue-50 p-4 rounded-lg border border-blue-100">
-            <div className="flex-1 w-full">
-              <label className="block text-sm font-medium text-blue-900 mb-1">
-                단가표 엑셀 업로드
-              </label>
-              <div className="flex gap-2">
-                <input 
-                  type="file" 
-                  accept=".xlsx, .xls" 
-                  onChange={handleFileUpload}
-                  disabled={!isLibLoaded}
-                  className="block w-full text-sm text-slate-500
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-full file:border-0
-                    file:text-sm file:font-semibold
-                    file:bg-blue-600 file:text-white
-                    hover:file:bg-blue-700
-                    disabled:opacity-50
-                  "
-                />
-              </div>
-              {!isLibLoaded && <p className="text-xs text-slate-400 mt-1">기능 로딩 중...</p>}
-            </div>
-          </div>
-        </div>
+            # 보기 좋게 컬럼 정리
+            final_view = analysis_df[[item_col, '통합규격', '수량', vendor_a, vendor_b, '단가차이', '총차액', '추천']]
+            
+            # 스타일링 (음수는 파란색/초록색, 양수는 빨간색 등)
+            st.dataframe(
+                final_view.style.format({
+                    vendor_a: "{:,.0f}",
+                    vendor_b: "{:,.0f}",
+                    '단가차이': "{:,.0f}",
+                    '총차액': "{:,.0f}"
+                }).map(lambda x: 'color: blue; font-weight: bold' if x < 0 else ('color: red' if x > 0 else 'color: gray'), subset=['총차액', '단가차이']),
+                use_container_width=True,
+                hide_index=True
+            )
 
-        {data.length > 0 && (
-          <>
-            {/* 업체 선택 및 결과 섹션 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                <label className="block text-sm font-semibold text-slate-500 mb-2">비교 업체 1 (기준)</label>
-                <select 
-                  value={vendorA} 
-                  onChange={(e) => setVendorA(e.target.value)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-lg font-bold"
-                >
-                  {vendorList.map(v => <option key={`a-${v}`} value={v}>{v}</option>)}
-                </select>
-                <div className="mt-4 p-4 bg-slate-50 rounded-lg flex justify-between items-center">
-                  <span className="text-sm text-slate-500">총 견적 금액</span>
-                  <div className="text-2xl font-bold text-slate-800">
-                    {totalA.toLocaleString()}원
-                  </div>
-                </div>
-              </div>
+        except Exception as e:
+            st.error("오류가 발생했습니다. 엑셀 파일 형식을 확인해주세요.")
+            st.exception(e)
 
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                <label className="block text-sm font-semibold text-slate-500 mb-2">비교 업체 2 (비교)</label>
-                <select 
-                  value={vendorB} 
-                  onChange={(e) => setVendorB(e.target.value)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-lg font-bold"
-                >
-                  {vendorList.map(v => <option key={`b-${v}`} value={v}>{v}</option>)}
-                </select>
-                <div className="mt-4 p-4 bg-slate-50 rounded-lg flex justify-between items-center">
-                  <span className="text-sm text-slate-500">총 견적 금액</span>
-                  <div className={`text-2xl font-bold ${totalB < totalA ? 'text-green-600' : 'text-slate-800'}`}>
-                    {totalB.toLocaleString()}원
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 총 결과 요약 */}
-            <div className={`p-6 rounded-xl text-center border ${totalDiff > 0 ? 'bg-green-50 border-green-200' : totalDiff < 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
-              <h3 className="text-lg font-medium text-slate-600 mb-1">견적 분석 결과</h3>
-              <div className="text-3xl font-bold flex items-center justify-center gap-2">
-                {totalDiff > 0 ? (
-                  <>
-                    <CheckCircle className="text-green-600" />
-                    <span className="text-green-700">
-                      {vendorB} 견적이 {totalDiff.toLocaleString()}원 더 저렴합니다!
-                    </span>
-                  </>
-                ) : totalDiff < 0 ? (
-                  <>
-                    <AlertCircle className="text-red-500" />
-                    <span className="text-red-700">
-                      {vendorB} 견적이 {Math.abs(totalDiff).toLocaleString()}원 더 비쌉니다.
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-slate-600">견적 금액이 동일합니다.</span>
-                )}
-              </div>
-            </div>
-
-            {/* 상세 비교 테이블 */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
-                <h2 className="font-bold text-slate-700">품목별 상세 견적서</h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-100 text-slate-600 uppercase font-medium">
-                    <tr>
-                      <th className="px-4 py-3 min-w-[150px]">품목명</th>
-                      <th className="px-4 py-3">규격</th>
-                      <th className="px-4 py-3 w-24 text-center bg-yellow-50 text-yellow-800 border-x border-yellow-100">수량</th>
-                      <th className="px-4 py-3 bg-blue-50 text-blue-800 text-right">{vendorA}<br/><span className="text-xs font-normal">(단가)</span></th>
-                      <th className="px-4 py-3 bg-green-50 text-green-800 text-right">{vendorB}<br/><span className="text-xs font-normal">(단가)</span></th>
-                      <th className="px-4 py-3 text-right">단가 차이</th>
-                      <th className="px-4 py-3 text-right bg-slate-50 border-l border-slate-200">총 차액<br/><span className="text-xs font-normal">(수량×차액)</span></th>
-                      <th className="px-4 py-3 text-center">추천</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {data.map((row, idx) => {
-                      const priceA = row[vendorA];
-                      const priceB = row[vendorB];
-                      const qty = quantities[row.originalKey] || 0;
-                      
-                      if (priceA === undefined || priceB === undefined) {
-                         return (
-                          <tr key={idx} className="hover:bg-slate-50 text-slate-400">
-                            <td className="px-4 py-3 font-medium">{row['품목명']}</td>
-                            <td className="px-4 py-3">{row['규격']}</td>
-                            <td className="px-4 py-3 text-center bg-yellow-50/30">
-                              <input 
-                                type="number" 
-                                min="0"
-                                value={qty}
-                                onChange={(e) => handleQuantityChange(row.originalKey, e.target.value)}
-                                className="w-16 p-1 text-center border rounded bg-white"
-                              />
-                            </td>
-                            <td className="px-4 py-3 text-right">-</td>
-                            <td className="px-4 py-3 text-right">-</td>
-                            <td className="px-4 py-3 text-right">-</td>
-                            <td className="px-4 py-3 text-right">-</td>
-                            <td className="px-4 py-3 text-center text-xs">정보 부족</td>
-                          </tr>
-                         );
-                      }
-
-                      const diff = priceB - priceA;
-                      const totalDiffItem = diff * qty;
-                      const isCheaper = priceB < priceA;
-
-                      return (
-                        <tr key={idx} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 font-medium text-slate-900">{row['품목명']}</td>
-                          <td className="px-4 py-3 text-slate-500">{row['규격']}</td>
-                          <td className="px-4 py-3 text-center bg-yellow-50/30 border-x border-yellow-50">
-                            <input 
-                              type="number" 
-                              min="0"
-                              value={qty}
-                              onChange={(e) => handleQuantityChange(row.originalKey, e.target.value)}
-                              className="w-16 p-1 text-center border border-yellow-200 rounded focus:ring-2 focus:ring-yellow-400 outline-none font-bold text-slate-700"
-                            />
-                          </td>
-                          <td className="px-4 py-3 bg-blue-50/30 text-right font-medium text-slate-600">
-                            {priceA.toLocaleString()}
-                          </td>
-                          <td className={`px-4 py-3 bg-green-50/30 text-right font-medium ${isCheaper ? 'text-green-600 font-bold' : 'text-slate-600'}`}>
-                            {priceB.toLocaleString()}
-                          </td>
-                          <td className={`px-4 py-3 text-right font-bold text-slate-400`}>
-                            {diff.toLocaleString()}
-                          </td>
-                          <td className={`px-4 py-3 text-right font-bold bg-slate-50/50 border-l border-slate-100 ${totalDiffItem < 0 ? 'text-green-600' : totalDiffItem > 0 ? 'text-red-500' : 'text-slate-300'}`}>
-                            {totalDiffItem.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {diff < 0 ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                {vendorB}
-                              </span>
-                            ) : diff > 0 ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                {vendorA}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
-
-export default PriceComparator;
+if __name__ == "__main__":
+    main()
