@@ -3,17 +3,21 @@ import pandas as pd
 
 # 페이지 기본 설정
 st.set_page_config(
-    page_title="스마트 견적 비교 시스템",
-    page_icon="⚡",
+    page_title="스마트 견적서 작성 시스템",
+    page_icon="📝",
     layout="wide"
 )
 
 def main():
-    st.title("⚡ 스마트 견적 비교 시스템")
-    st.markdown("필요한 **품목을 선택**하고 **수량**을 입력하면, 실시간으로 최저가와 총 차액을 분석합니다.")
+    st.title("📝 스마트 견적서 작성 시스템")
+    st.markdown("원하는 품목을 **직접 선택**하여 견적서에 추가하세요.")
+
+    # 세션 상태 초기화 (견적 리스트 저장용)
+    if 'quote_list' not in st.session_state:
+        st.session_state.quote_list = []
 
     # 1. 파일 업로드 섹션
-    with st.expander("📂 엑셀 파일 업로드 (클릭하여 열기)", expanded=True):
+    with st.expander("📂 단가표 엑셀 파일 관리 (클릭)", expanded=True):
         uploaded_file = st.file_uploader("단가표 엑셀 업로드", type=['xlsx', 'xls'], label_visibility="collapsed")
 
     if uploaded_file is not None:
@@ -23,7 +27,7 @@ def main():
             # ---------------------------------------------------------
             df_raw = pd.read_excel(uploaded_file)
             
-            # 컬럼명 유연하게 찾기
+            # 컬럼명 자동 감지
             cols = df_raw.columns.tolist()
             vendor_col = next((c for c in cols if '업체' in c or '거래처' in c), None)
             item_col = next((c for c in cols if '품목' in c or '품명' in c), None)
@@ -34,13 +38,13 @@ def main():
                 st.error("엑셀 파일 형식을 확인해주세요. (필수: 업체명, 품목명, 단가)")
                 return
 
-            # 규격 통합
+            # 규격 통합 함수
             def combine_specs(row):
                 specs = [str(row[c]) for c in spec_cols if pd.notna(row[c]) and str(row[c]).strip() != '']
                 return ' '.join(specs) if specs else '-'
             df_raw['통합규격'] = df_raw.apply(combine_specs, axis=1)
 
-            # 피벗 테이블 생성
+            # 피벗 테이블 (검색 최적화)
             df_pivot = df_raw.pivot_table(
                 index=[item_col, '통합규격'], 
                 columns=vendor_col, 
@@ -48,7 +52,6 @@ def main():
                 aggfunc='first'
             ).reset_index()
 
-            # 업체 리스트
             vendors = [c for c in df_pivot.columns if c not in [item_col, '통합규격']]
             if len(vendors) < 2:
                 st.warning("비교할 업체가 2개 이상이어야 합니다.")
@@ -57,120 +60,149 @@ def main():
             st.divider()
 
             # ---------------------------------------------------------
-            # 2. 설정 및 필터링 (업체 선택 + 품목 선택)
+            # 2. 업체 설정 (기본값: 솔트룩스, 태양산자)
             # ---------------------------------------------------------
-            c1, c2, c3 = st.columns([1, 1, 2])
-            with c1:
-                vendor_a = st.selectbox("기준 업체 (A)", vendors, index=0)
-            with c2:
-                vendor_b = st.selectbox("비교 업체 (B)", vendors, index=1 if len(vendors) > 1 else 0)
+            c1, c2 = st.columns(2)
             
-            # 품목 선택 (멀티셀렉트)
-            all_items = df_pivot[item_col].unique().tolist()
-            with c3:
-                selected_items = st.multiselect(
-                    "견적 낼 품목 선택 (여러 개 선택 가능)", 
-                    options=all_items,
-                    placeholder="품목을 선택해주세요..."
+            # 기본값 인덱스 찾기 함수
+            def get_index(options, target):
+                try:
+                    return list(options).index(target)
+                except ValueError:
+                    return 0
+
+            # 업체 A (기본: 솔트룩스)
+            idx_a = get_index(vendors, '솔트룩스')
+            with c1:
+                vendor_a = st.selectbox("기준 업체 (A)", vendors, index=idx_a)
+
+            # 업체 B (기본: 태양산자)
+            # A와 B가 겹치지 않도록 태양산자가 없거나 A와 같으면 다른 것 선택
+            default_b = '태양산자'
+            idx_b = get_index(vendors, default_b)
+            if idx_b == idx_a and len(vendors) > 1:
+                idx_b = 1 if idx_a == 0 else 0
+                
+            with c2:
+                vendor_b = st.selectbox("비교 업체 (B)", vendors, index=idx_b)
+
+            st.divider()
+
+            # ---------------------------------------------------------
+            # 3. 품목 추가 인터페이스 (입력창)
+            # ---------------------------------------------------------
+            st.subheader("➕ 품목 추가하기")
+            
+            # 입력 폼 컨테이너
+            with st.container():
+                col_input1, col_input2, col_input3, col_btn = st.columns([2, 2, 1, 1])
+
+                # 1) 품목 선택
+                all_items = sorted(df_pivot[item_col].unique().tolist())
+                selected_item = col_input1.selectbox("품목 선택", all_items, key="sel_item")
+
+                # 2) 규격 선택 (품목에 종속됨)
+                # 선택된 품목에 해당하는 규격만 필터링
+                available_specs = df_pivot[df_pivot[item_col] == selected_item]['통합규격'].unique().tolist()
+                selected_spec = col_input2.selectbox("규격 선택", available_specs, key="sel_spec")
+
+                # 3) 수량 입력
+                input_qty = col_input3.number_input("수량", min_value=1, value=1, step=1, key="in_qty")
+
+                # 4) 추가 버튼
+                if col_btn.button("품목 추가", type="primary", use_container_width=True):
+                    # 리스트에 추가 로직
+                    new_entry = {
+                        'id': f"{selected_item}_{selected_spec}", # 중복 방지용 키
+                        item_col: selected_item,
+                        '통합규격': selected_spec,
+                        '수량': input_qty
+                    }
+                    
+                    # 이미 있는지 확인 (있으면 수량만 업데이트할지, 중복 허용할지 결정 -> 여기선 덮어쓰기)
+                    existing_idx = next((i for i, x in enumerate(st.session_state.quote_list) if x['id'] == new_entry['id']), -1)
+                    
+                    if existing_idx != -1:
+                        st.session_state.quote_list[existing_idx]['수량'] += input_qty # 기존 수량에 더하기
+                        st.toast(f"✅ '{selected_item}' 수량이 추가되었습니다.")
+                    else:
+                        st.session_state.quote_list.append(new_entry)
+                        st.toast(f"✅ '{selected_item}' 추가 완료!")
+
+            # ---------------------------------------------------------
+            # 4. 견적 리스트 (결과 테이블)
+            # ---------------------------------------------------------
+            st.divider()
+            st.subheader(f"📋 견적 리스트 ({len(st.session_state.quote_list)}건)")
+
+            if st.session_state.quote_list:
+                # 리스트를 데이터프레임으로 변환
+                df_quote = pd.DataFrame(st.session_state.quote_list)
+
+                # 원본 피벗 데이터에서 단가 가져오기 (Merge)
+                # 키: 품목, 규격
+                df_merged = pd.merge(
+                    df_quote, 
+                    df_pivot[[item_col, '통합규격', vendor_a, vendor_b]], 
+                    on=[item_col, '통합규격'], 
+                    how='left'
                 )
 
-            # ---------------------------------------------------------
-            # 3. 통합 테이블 데이터 구성
-            # ---------------------------------------------------------
-            if not selected_items:
-                st.info("👆 위에서 견적을 낼 품목을 선택하면 상세 표가 나타납니다.")
-                st.stop()
+                # 계산 로직
+                df_merged[f'{vendor_a} 단가'] = df_merged[vendor_a].fillna(0)
+                df_merged[f'{vendor_b} 단가'] = df_merged[vendor_b].fillna(0)
+                
+                df_merged[f'{vendor_a} 합계'] = df_merged[f'{vendor_a} 단가'] * df_merged['수량']
+                df_merged[f'{vendor_b} 합계'] = df_merged[f'{vendor_b} 단가'] * df_merged['수량']
+                
+                df_merged['차액'] = df_merged[f'{vendor_a} 합계'] - df_merged[f'{vendor_b} 합계']
 
-            # 선택한 품목만 필터링
-            df_filtered = df_pivot[df_pivot[item_col].isin(selected_items)].copy()
+                # 총계 계산
+                total_a = df_merged[f'{vendor_a} 합계'].sum()
+                total_b = df_merged[f'{vendor_b} 합계'].sum()
+                total_diff = df_merged['차액'].sum()
 
-            # 세션 상태를 활용하여 수량 유지 (새로운 품목이 추가되어도 기존 수량 유지 노력)
-            if "quantities" not in st.session_state:
-                st.session_state.quantities = {}
+                # 화면 표시용 컬럼 정리
+                display_cols = [
+                    item_col, '통합규격', '수량', 
+                    f'{vendor_a} 단가', f'{vendor_a} 합계', 
+                    f'{vendor_b} 단가', f'{vendor_b} 합계', 
+                    '차액'
+                ]
+                
+                # 테이블 출력
+                st.dataframe(
+                    df_merged[display_cols].style.format({
+                        f'{vendor_a} 단가': "{:,.0f}원",
+                        f'{vendor_a} 합계': "{:,.0f}원",
+                        f'{vendor_b} 단가': "{:,.0f}원",
+                        f'{vendor_b} 합계': "{:,.0f}원",
+                        '차액': "{:,.0f}원"
+                    }).map(lambda x: 'color: blue; font-weight: bold' if x > 0 else ('color: red' if x < 0 else 'color: gray'), subset=['차액']),
+                    use_container_width=True,
+                    hide_index=True
+                )
 
-            # 현재 필터링된 데이터프레임에 수량 매핑
-            # (키: 품목명_규격)
-            def get_qty(row):
-                key = f"{row[item_col]}_{row['통합규격']}"
-                return st.session_state.quantities.get(key, 1) # 기본값 1
+                # 하단 요약 및 버튼
+                c_sum1, c_sum2, c_btn = st.columns([2, 2, 1])
+                
+                with c_sum1:
+                    st.info(f"**{vendor_a} 총액**: {int(total_a):,}원")
+                with c_sum2:
+                    if total_diff > 0:
+                        st.success(f"**{vendor_b} 총액**: {int(total_b):,}원 (▼ {int(total_diff):,}원 절감)")
+                    elif total_diff < 0:
+                        st.error(f"**{vendor_b} 총액**: {int(total_b):,}원 (▲ {int(abs(total_diff)):,}원 손해)")
+                    else:
+                        st.warning(f"**{vendor_b} 총액**: {int(total_b):,}원 (동일)")
+                
+                with c_btn:
+                    if st.button("🗑️ 전체 삭제", type="secondary", use_container_width=True):
+                        st.session_state.quote_list = []
+                        st.rerun()
 
-            df_filtered['수량'] = df_filtered.apply(get_qty, axis=1)
-
-            # 계산용 컬럼 미리 추가 (화면 표시용)
-            df_filtered[f'{vendor_a} 합계'] = df_filtered[vendor_a] * df_filtered['수량']
-            df_filtered[f'{vendor_b} 합계'] = df_filtered[vendor_b] * df_filtered['수량']
-            df_filtered['차액(절감액)'] = df_filtered[f'{vendor_a} 합계'] - df_filtered[f'{vendor_b} 합계']
-
-            # ---------------------------------------------------------
-            # 4. 상단 요약 대시보드 (실시간 계산)
-            # ---------------------------------------------------------
-            total_saving = df_filtered['차액(절감액)'].sum()
-            total_a_sum = df_filtered[f'{vendor_a} 합계'].sum()
-            total_b_sum = df_filtered[f'{vendor_b} 합계'].sum()
-
-            st.markdown(f"### 📊 견적 요약 ({len(selected_items)}개 품목)")
-            
-            m1, m2, m3 = st.columns(3)
-            m1.metric(f"{vendor_a} 총 견적", f"{int(total_a_sum):,}원")
-            m2.metric(f"{vendor_b} 총 견적", f"{int(total_b_sum):,}원")
-            
-            # 절감액 색상 처리
-            if total_saving > 0:
-                m3.metric("총 절감 가능 금액", f"{int(total_saving):,}원", "이득 (B가 더 저렴)", delta_color="normal")
-            elif total_saving < 0:
-                m3.metric("총 절감 가능 금액", f"{int(total_saving):,}원", "손해 (A가 더 저렴)", delta_color="inverse")
             else:
-                m3.metric("총 절감 가능 금액", "0원", "동일")
-
-            # ---------------------------------------------------------
-            # 5. 통합 데이터 에디터 (입력 + 결과)
-            # ---------------------------------------------------------
-            st.markdown("---")
-            st.caption("📝 아래 표에서 **수량**을 수정하면 합계와 차액이 자동으로 다시 계산됩니다.")
-
-            # 화면에 보여줄 컬럼 순서 및 설정
-            display_df = df_filtered[[
-                item_col, '통합규격', '수량', 
-                vendor_a, f'{vendor_a} 합계', 
-                vendor_b, f'{vendor_b} 합계', 
-                '차액(절감액)'
-            ]]
-
-            edited_df = st.data_editor(
-                display_df,
-                column_config={
-                    "수량": st.column_config.NumberColumn(
-                        "수량 (입력)", help="구매할 수량을 입력하세요", min_value=1, step=1, format="%d"
-                    ),
-                    vendor_a: st.column_config.NumberColumn(f"{vendor_a} 단가", format="%d원"),
-                    f'{vendor_a} 합계': st.column_config.NumberColumn(f"{vendor_a} 합계", format="%d원"),
-                    vendor_b: st.column_config.NumberColumn(f"{vendor_b} 단가", format="%d원"),
-                    f'{vendor_b} 합계': st.column_config.NumberColumn(f"{vendor_b} 합계", format="%d원"),
-                    "차액(절감액)": st.column_config.NumberColumn(
-                        "차액 (A-B)", 
-                        help="양수면 B가 저렴(이득), 음수면 A가 저렴(손해)", 
-                        format="%d원"
-                    ),
-                },
-                # 수량만 수정 가능하게 하고 나머지는 잠금
-                disabled=[item_col, '통합규격', vendor_a, f'{vendor_a} 합계', vendor_b, f'{vendor_b} 합계', '차액(절감액)'],
-                use_container_width=True,
-                hide_index=True,
-                height=500
-            )
-
-            # ---------------------------------------------------------
-            # 6. 수량 변경 감지 및 세션 업데이트
-            # ---------------------------------------------------------
-            # 사용자가 수량을 바꾸면 edited_df가 업데이트됨 -> 이를 세션에 저장하여 다음 렌더링 때 반영
-            for index, row in edited_df.iterrows():
-                key = f"{row[item_col]}_{row['통합규격']}"
-                if key in st.session_state.quantities:
-                    if st.session_state.quantities[key] != row['수량']:
-                        st.session_state.quantities[key] = row['수량']
-                        st.rerun() # 즉시 재실행하여 합계 컬럼 업데이트
-                else:
-                    st.session_state.quantities[key] = row['수량']
+                st.info("견적서가 비어있습니다. 위에서 품목을 추가해주세요.")
 
         except Exception as e:
             st.error("처리 중 오류가 발생했습니다.")
