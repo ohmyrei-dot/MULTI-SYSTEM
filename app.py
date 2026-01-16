@@ -138,7 +138,7 @@ def main():
                         st.toast(f"✅ '{selected_item}' 추가 완료!")
 
             # ---------------------------------------------------------
-            # 4. 견적 리스트 (커스텀 테이블 뷰)
+            # 4. 견적 리스트 (상세 보기 복구)
             # ---------------------------------------------------------
             st.divider()
             st.subheader(f"📋 견적 리스트 ({len(st.session_state.quote_list)}건)")
@@ -165,20 +165,26 @@ def main():
                 total_b = df_merged[f'{vendor_b} 합계'].sum()
                 total_diff = total_a - total_b
 
-                # --- 커스텀 테이블 헤더 ---
-                h_cols = st.columns([0.5, 2, 1.5, 1, 1.5, 1.5, 1.5])
+                # --- 커스텀 테이블 헤더 (모든 항목 포함) ---
+                # 비율 설정: 삭제(0.5) 품목(1.5) 규격(1.2) 수량(0.7) 단가A(1) 단가B(1) 단가차액(1) 합계A(1.1) 합계B(1.1) 총차액(1.1)
+                ratio = [0.5, 1.5, 1.2, 0.7, 1, 1, 1, 1.1, 1.1, 1.1]
+                
+                h_cols = st.columns(ratio)
                 h_cols[0].markdown("**삭제**")
                 h_cols[1].markdown("**품목**")
                 h_cols[2].markdown("**규격**")
                 h_cols[3].markdown("**수량**")
-                h_cols[4].markdown(f"**{vendor_a} 합계**")
-                h_cols[5].markdown(f"**{vendor_b} 합계**")
-                h_cols[6].markdown("**총 차액 (이득)**")
+                h_cols[4].markdown(f"**{vendor_a}<br>단가**", unsafe_allow_html=True)
+                h_cols[5].markdown(f"**{vendor_b}<br>단가**", unsafe_allow_html=True)
+                h_cols[6].markdown("**단가<br>차액**", unsafe_allow_html=True)
+                h_cols[7].markdown(f"**{vendor_a}<br>합계**", unsafe_allow_html=True)
+                h_cols[8].markdown(f"**{vendor_b}<br>합계**", unsafe_allow_html=True)
+                h_cols[9].markdown("**총 차액<br>(이득)**", unsafe_allow_html=True)
                 st.markdown("---")
 
-                # --- 각 행 반복 출력 (삭제 버튼 포함) ---
+                # --- 각 행 반복 출력 ---
                 for idx, row in df_merged.iterrows():
-                    cols = st.columns([0.5, 2, 1.5, 1, 1.5, 1.5, 1.5])
+                    cols = st.columns(ratio)
                     
                     # 1. 삭제 버튼
                     if cols[0].button("🗑️", key=f"del_{row['id']}"):
@@ -191,24 +197,38 @@ def main():
                     cols[1].text(row[item_col])
                     cols[2].text(row['통합규격'])
                     cols[3].text(f"{row['수량']:,}")
-                    cols[4].text(f"{int(row[f'{vendor_a} 합계']):,}원")
-                    cols[5].text(f"{int(row[f'{vendor_b} 합계']):,}원")
                     
-                    # 3. 차액 색상 처리
-                    diff_val = row['총 차액']
-                    if diff_val > 0:
-                        cols[6].markdown(f":blue[**+{int(diff_val):,}원**]") # 이득
-                    elif diff_val < 0:
-                        cols[6].markdown(f":red[{int(diff_val):,}원]") # 손해
+                    # 단가
+                    cols[4].text(f"{int(row[f'{vendor_a} 단가']):,}원")
+                    cols[5].text(f"{int(row[f'{vendor_b} 단가']):,}원")
+                    
+                    # 단가 차액 (B가 더 비싸면 양수 -> 빨강, B가 더 싸면 음수 -> 파랑)
+                    u_diff = row['단가 차액']
+                    if u_diff > 0:
+                         cols[6].markdown(f":red[+{int(u_diff):,}원]")
+                    elif u_diff < 0:
+                         cols[6].markdown(f":blue[{int(u_diff):,}원]")
                     else:
-                        cols[6].text("-")
+                         cols[6].text("-")
+
+                    # 합계
+                    cols[7].text(f"{int(row[f'{vendor_a} 합계']):,}원")
+                    cols[8].text(f"{int(row[f'{vendor_b} 합계']):,}원")
+
+                    # 총 차액 (이득)
+                    t_diff = row['총 차액']
+                    if t_diff > 0:
+                        cols[9].markdown(f":blue[**+{int(t_diff):,}원**]") 
+                    elif t_diff < 0:
+                        cols[9].markdown(f":red[{int(t_diff):,}원]")
+                    else:
+                        cols[9].text("-")
 
                 # ---------------------------------------------------------
                 # 5. 최종 결과 요약 (화면 하단 배치)
                 # ---------------------------------------------------------
                 st.markdown("---")
                 
-                # 전체 삭제 버튼 (우측 정렬 느낌을 위해 컬럼 활용)
                 _, del_col = st.columns([5, 1])
                 if del_col.button("🗑️ 리스트 전체 비우기", type="secondary"):
                     st.session_state.quote_list = []
