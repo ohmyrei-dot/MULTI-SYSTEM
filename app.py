@@ -170,8 +170,13 @@ def main():
             total_b = df_merged[f'{vendor_b} 합계'].sum()
             total_diff = total_a - total_b
 
-            # 보기 모드 선택 (PC 표 / 모바일 카드)
-            view_mode = st.radio("화면 모드 선택", ["🖥️ PC (표)", "📱 모바일 (카드)"], horizontal=True, label_visibility="collapsed")
+            # 보기 모드 선택 (모바일 기본값으로 변경)
+            view_mode = st.radio(
+                "화면 모드 선택", 
+                ["📱 모바일 (카드)", "🖥️ PC (표)"], 
+                horizontal=True, 
+                label_visibility="collapsed"
+            )
 
             if view_mode == "🖥️ PC (표)":
                 # --- PC 버전: 기존 표 형태 유지 ---
@@ -216,7 +221,7 @@ def main():
                     else: cols[9].text("-")
 
             else:
-                # --- 모바일 버전: 카드(Card) 형태 ---
+                # --- 모바일 버전: 카드(Card) 형태 수정됨 ---
                 for idx, row in df_merged.iterrows():
                     with st.container(border=True):
                         # 헤더: 품목명 + 삭제 버튼
@@ -230,17 +235,15 @@ def main():
                         st.text(f"규격: {row['통합규격']} | 수량: {row['수량']:,}개")
                         st.markdown("---")
                         
-                        # 업체별 가격 비교
+                        # 업체별 가격 비교 (레이아웃 변경: 업체명 줄바꿈 단가|합계)
                         mc3, mc4 = st.columns(2)
                         with mc3:
-                            st.caption(vendor_a)
-                            st.text(f"단가: {int(row[f'{vendor_a} 단가']):,}원")
-                            st.markdown(f"**합계: {int(row[f'{vendor_a} 합계']):,}원**")
+                            st.markdown(f"**{vendor_a}**")
+                            st.markdown(f"단가: {int(row[f'{vendor_a} 단가']):,}원 | 합계: {int(row[f'{vendor_a} 합계']):,}원")
                         
                         with mc4:
-                            st.caption(vendor_b)
-                            st.text(f"단가: {int(row[f'{vendor_b} 단가']):,}원")
-                            st.markdown(f"**합계: {int(row[f'{vendor_b} 합계']):,}원**")
+                            st.markdown(f"**{vendor_b}**")
+                            st.markdown(f"단가: {int(row[f'{vendor_b} 단가']):,}원 | 합계: {int(row[f'{vendor_b} 합계']):,}원")
                         
                         # 최종 차액 강조
                         t_diff = row['총 차액']
