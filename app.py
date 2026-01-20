@@ -39,7 +39,9 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 # 2. 데이터 로드 및 세션 상태 초기화
 # -----------------------------------------------------------------------------
-DATA_URL = "https://raw.githubusercontent.com/ohmyrei-dot/MULTI-SYSTEM/main/단가표.xlsx"
+# 한글 파일명("단가표.xlsx")으로 인한 오류 방지를 위해 인코딩된 URL 사용
+# "단가표" -> "%EB%8B%A8%EA%B0%80%ED%91%9C"
+DATA_URL = "https://raw.githubusercontent.com/ohmyrei-dot/MULTI-SYSTEM/main/%EB%8B%A8%EA%B0%80%ED%91%9C.xlsx"
 
 @st.cache_data
 def load_excel_data(url):
