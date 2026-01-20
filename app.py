@@ -2,9 +2,51 @@ import React, { useState } from 'react';
 import { Delete, Equal, Calculator as CalcIcon } from 'lucide-react';
 
 export default function App() {
- 
+  const [display, setDisplay] = useState('0');
+  const [equation, setEquation] = useState('');
+  const [isNewNumber, setIsNewNumber] = useState(true);
+
+  const handleNumber = (num) => {
+    if (isNewNumber) {
+      setDisplay(num.toString());
+      setIsNewNumber(false);
+    } else {
+      setDisplay(display === '0' ? num.toString() : display + num);
+    }
+  };
+
+  const handleOperator = (op) => {
+    setEquation(`${display} ${op} `);
+    setIsNewNumber(true);
+  };
+
+  const calculate = () => {
+    try {
+      const fullEquation = equation + display;
+      // Note: Using Function constructor for safe eval alternative in this demo context
+      // In production, use a proper math parser
+      // eslint-disable-next-line
+      const result = new Function('return ' + fullEquation.replace('×', '*').replace('÷', '/'))();
+      
+      setDisplay(String(Number(result.toFixed(8)))); // Limit decimals
+      setEquation('');
       setIsNewNumber(true);
-    } catch
+    } catch (error) {
+      setDisplay('Error');
+      setEquation('');
+      setIsNewNumber(true);
+    }
+  };
+
+  const clear = () => {
+    setDisplay('0');
+    setEquation('');
+    setIsNewNumber(true);
+  };
+
+  const percentage = () => {
+    setDisplay(String(parseFloat(display) / 100));
+  };
 
   const toggleSign = () => {
     setDisplay(String(parseFloat(display) * -1));
