@@ -9,6 +9,41 @@ st.set_page_config(
     layout="wide"
 )
 
+# ---------------------------------------------------------
+# CSS 스타일 주입 (반응형 처리 및 카드 디자인)
+# ---------------------------------------------------------
+st.markdown("""
+<style>
+    /* 기본적으로 데스크탑 뷰 보이기 */
+    .desktop-view { display: block; }
+    .mobile-view { display: none; }
+
+    /* 모바일 화면(폭 768px 이하)일 때 전환 */
+    @media (max-width: 768px) {
+        .desktop-view { display: none; }
+        .mobile-view { display: block; }
+    }
+    
+    /* 모바일 카드 스타일 미세 조정 */
+    .mobile-card-container {
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 10px;
+        background-color: white;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .vendor-info {
+        font-size: 0.9em;
+        color: #555;
+    }
+    .price-tag {
+        font-weight: bold;
+        color: #333;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 def main():
     st.title("📝 스마트 견적서 작성 시스템")
     st.markdown("원하는 품목을 **직접 선택**하여 견적서에 추가하세요.")
@@ -22,17 +57,14 @@ def main():
     # ---------------------------------------------------------
     file_path = '단가표.xlsx'
     
-    # 파일 존재 여부 확인 및 로드
     if not os.path.exists(file_path):
         st.error(f"🚨 '{file_path}' 파일을 찾을 수 없습니다.")
         st.info("깃허브 저장소의 최상위 경로에 '단가표.xlsx' 파일을 업로드해주세요.")
         return
 
     try:
-        # 데이터 로드
         df_raw = pd.read_excel(file_path)
         
-        # 컬럼명 자동 감지
         cols = df_raw.columns.tolist()
         vendor_col = next((c for c in cols if '업체' in c or '거래처' in c), None)
         item_col = next((c for c in cols if '품목' in c or '품명' in c), None)
@@ -43,13 +75,11 @@ def main():
             st.error("엑셀 파일 형식을 확인해주세요. (필수 컬럼: 업체명, 품목명, 단가)")
             return
 
-        # 규격 통합 함수
         def combine_specs(row):
             specs = [str(row[c]) for c in spec_cols if pd.notna(row[c]) and str(row[c]).strip() != '']
             return ' '.join(specs) if specs else '-'
         df_raw['통합규격'] = df_raw.apply(combine_specs, axis=1)
 
-        # 피벗 테이블
         df_pivot = df_raw.pivot_table(
             index=[item_col, '통합규격'], 
             columns=vendor_col, 
@@ -75,12 +105,10 @@ def main():
             except ValueError:
                 return 0
 
-        # 업체 A (기본: 솔트룩스)
         idx_a = get_index(vendors, '솔트룩스')
         with c1:
             vendor_a = st.selectbox("기준 업체 (A)", vendors, index=idx_a)
 
-        # 업체 B (기본: 태양산자)
         target_b = '태양산자'
         if target_b not in vendors:
             idx_b = 1 if len(vendors) > 1 else 0
@@ -93,14 +121,13 @@ def main():
         st.divider()
 
         # ---------------------------------------------------------
-        # 3. 품목 추가 인터페이스 (우선순위 정렬 적용)
+        # 3. 품목 추가 인터페이스
         # ---------------------------------------------------------
         st.subheader("➕ 품목 추가하기")
         
         with st.container():
             col_input1, col_input2, col_input3, col_btn = st.columns([2, 2, 1, 1])
 
-            # 1) 품목 선택 (정렬 로직 적용)
             raw_items = df_pivot[item_col].unique().tolist()
             priority_keywords = ['안전망', 'PP로프', '와이어로프', '와이어클립', '멀티망', '럿셀망', '케이블타이', 'PE로프']
             
@@ -116,15 +143,12 @@ def main():
             final_item_list = sorted_items + others
 
             selected_item = col_input1.selectbox("품목 선택", final_item_list, key="sel_item")
-
-            # 2) 규격 선택
+            
             available_specs = df_pivot[df_pivot[item_col] == selected_item]['통합규격'].unique().tolist()
             selected_spec = col_input2.selectbox("규격 선택", available_specs, key="sel_spec")
-
-            # 3) 수량 입력
+            
             input_qty = col_input3.number_input("수량", min_value=1, value=1, step=1, key="in_qty")
 
-            # 4) 추가 버튼
             if col_btn.button("품목 추가", type="primary", use_container_width=True):
                 new_entry = {
                     'id': f"{selected_item}_{selected_spec}",
@@ -143,7 +167,7 @@ def main():
                     st.toast(f"✅ '{selected_item}' 추가 완료!")
 
         # ---------------------------------------------------------
-        # 4. 견적 리스트 (반응형 디자인 적용)
+        # 4. 견적 리스트 (자동 반응형 적용)
         # ---------------------------------------------------------
         st.divider()
         st.subheader(f"📋 견적 리스트 ({len(st.session_state.quote_list)}건)")
@@ -151,7 +175,6 @@ def main():
         if st.session_state.quote_list:
             df_quote = pd.DataFrame(st.session_state.quote_list)
 
-            # 데이터 병합 및 계산
             df_merged = pd.merge(
                 df_quote, 
                 df_pivot[[item_col, '통합규격', vendor_a, vendor_b]], 
@@ -170,86 +193,113 @@ def main():
             total_b = df_merged[f'{vendor_b} 합계'].sum()
             total_diff = total_a - total_b
 
-            # 보기 모드 선택 (PC 표 / 모바일 카드)
-            view_mode = st.radio("화면 모드 선택", ["🖥️ PC (표)", "📱 모바일 (카드)"], horizontal=True, label_visibility="collapsed")
+            # =========================================================
+            # [데스크탑 뷰] 표 형태 (width > 768px)
+            # =========================================================
+            st.markdown('<div class="desktop-view">', unsafe_allow_html=True)
+            
+            # 헤더
+            ratio = [0.5, 1.5, 1.2, 0.7, 1, 1, 1, 1.1, 1.1, 1.1]
+            h_cols = st.columns(ratio)
+            h_cols[0].markdown("**삭제**")
+            h_cols[1].markdown("**품목**")
+            h_cols[2].markdown("**규격**")
+            h_cols[3].markdown("**수량**")
+            h_cols[4].markdown(f"**{vendor_a}<br>단가**", unsafe_allow_html=True)
+            h_cols[5].markdown(f"**{vendor_b}<br>단가**", unsafe_allow_html=True)
+            h_cols[6].markdown("**단가<br>차액**", unsafe_allow_html=True)
+            h_cols[7].markdown(f"**{vendor_a}<br>합계**", unsafe_allow_html=True)
+            h_cols[8].markdown(f"**{vendor_b}<br>합계**", unsafe_allow_html=True)
+            h_cols[9].markdown("**총 차액<br>(이득)**", unsafe_allow_html=True)
+            st.markdown("---")
 
-            if view_mode == "🖥️ PC (표)":
-                # --- PC 버전: 기존 표 형태 유지 ---
-                ratio = [0.5, 1.5, 1.2, 0.7, 1, 1, 1, 1.1, 1.1, 1.1]
-                h_cols = st.columns(ratio)
-                h_cols[0].markdown("**삭제**")
-                h_cols[1].markdown("**품목**")
-                h_cols[2].markdown("**규격**")
-                h_cols[3].markdown("**수량**")
-                h_cols[4].markdown(f"**{vendor_a}<br>단가**", unsafe_allow_html=True)
-                h_cols[5].markdown(f"**{vendor_b}<br>단가**", unsafe_allow_html=True)
-                h_cols[6].markdown("**단가<br>차액**", unsafe_allow_html=True)
-                h_cols[7].markdown(f"**{vendor_a}<br>합계**", unsafe_allow_html=True)
-                h_cols[8].markdown(f"**{vendor_b}<br>합계**", unsafe_allow_html=True)
-                h_cols[9].markdown("**총 차액<br>(이득)**", unsafe_allow_html=True)
-                st.markdown("---")
+            # 리스트 출력
+            for idx, row in df_merged.iterrows():
+                cols = st.columns(ratio)
+                
+                # 삭제 버튼 (PC용 Key)
+                if cols[0].button("🗑️", key=f"del_pc_{row['id']}"):
+                    st.session_state.quote_list = [x for x in st.session_state.quote_list if x['id'] != row['id']]
+                    st.rerun()
 
-                for idx, row in df_merged.iterrows():
-                    cols = st.columns(ratio)
+                cols[1].text(row[item_col])
+                cols[2].text(row['통합규격'])
+                cols[3].text(f"{row['수량']:,}")
+                cols[4].text(f"{int(row[f'{vendor_a} 단가']):,}원")
+                cols[5].text(f"{int(row[f'{vendor_b} 단가']):,}원")
+                
+                u_diff = row['단가 차액']
+                if u_diff > 0: cols[6].markdown(f":red[+{int(u_diff):,}원]")
+                elif u_diff < 0: cols[6].markdown(f":blue[{int(u_diff):,}원]")
+                else: cols[6].text("-")
+
+                cols[7].text(f"{int(row[f'{vendor_a} 합계']):,}원")
+                cols[8].text(f"{int(row[f'{vendor_b} 합계']):,}원")
+
+                t_diff = row['총 차액']
+                if t_diff > 0: cols[9].markdown(f":blue[**+{int(t_diff):,}원**]") 
+                elif t_diff < 0: cols[9].markdown(f":red[{int(t_diff):,}원]")
+                else: cols[9].text("-")
+                
+            st.markdown('</div>', unsafe_allow_html=True)
+
+
+            # =========================================================
+            # [모바일 뷰] 카드 형태 (width <= 768px)
+            # =========================================================
+            st.markdown('<div class="mobile-view">', unsafe_allow_html=True)
+            
+            for idx, row in df_merged.iterrows():
+                # 스타일링된 컨테이너 사용
+                with st.container(border=True):
+                    # 상단: 품목명 + 삭제 버튼
+                    mc1, mc2 = st.columns([8, 2])
+                    mc1.markdown(f"**{row[item_col]}** <span style='color:gray; font-size:0.8em'>({row['통합규격']})</span>", unsafe_allow_html=True)
                     
-                    if cols[0].button("🗑️", key=f"del_pc_{row['id']}"):
+                    # 삭제 버튼 (모바일용 Key: del_mo_...)
+                    if mc2.button("🗑️", key=f"del_mo_{row['id']}"):
                         st.session_state.quote_list = [x for x in st.session_state.quote_list if x['id'] != row['id']]
                         st.rerun()
-
-                    cols[1].text(row[item_col])
-                    cols[2].text(row['통합규격'])
-                    cols[3].text(f"{row['수량']:,}")
-                    cols[4].text(f"{int(row[f'{vendor_a} 단가']):,}원")
-                    cols[5].text(f"{int(row[f'{vendor_b} 단가']):,}원")
                     
-                    u_diff = row['단가 차액']
-                    if u_diff > 0: cols[6].markdown(f":red[+{int(u_diff):,}원]")
-                    elif u_diff < 0: cols[6].markdown(f":blue[{int(u_diff):,}원]")
-                    else: cols[6].text("-")
+                    st.caption(f"수량: {row['수량']:,}개")
+                    
+                    # 업체별 정보 (2단 구성)
+                    col_v1, col_v2 = st.columns(2)
+                    
+                    # 업체 A 정보
+                    with col_v1:
+                        st.markdown(f"**{vendor_a}**") # 1행: 업체명 굵게
+                        # 2행: 단가 | 합계
+                        st.markdown(f"""
+                        <div class="vendor-info">
+                        단가: {int(row[f'{vendor_a} 단가']):,}원<br>
+                        <span class="price-tag">합계: {int(row[f'{vendor_a} 합계']):,}원</span>
+                        </div>
+                        """, unsafe_allow_html=True)
 
-                    cols[7].text(f"{int(row[f'{vendor_a} 합계']):,}원")
-                    cols[8].text(f"{int(row[f'{vendor_b} 합계']):,}원")
-
+                    # 업체 B 정보
+                    with col_v2:
+                        st.markdown(f"**{vendor_b}**") # 1행: 업체명 굵게
+                        # 2행: 단가 | 합계
+                        st.markdown(f"""
+                        <div class="vendor-info">
+                        단가: {int(row[f'{vendor_b} 단가']):,}원<br>
+                        <span class="price-tag">합계: {int(row[f'{vendor_b} 합계']):,}원</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # 카드 하단: 차액 강조
+                    st.markdown("---")
                     t_diff = row['총 차액']
-                    if t_diff > 0: cols[9].markdown(f":blue[**+{int(t_diff):,}원**]") 
-                    elif t_diff < 0: cols[9].markdown(f":red[{int(t_diff):,}원]")
-                    else: cols[9].text("-")
+                    if t_diff > 0:
+                        st.success(f"💰 {vendor_b}가 {int(t_diff):,}원 더 저렴")
+                    elif t_diff < 0:
+                        st.error(f"💸 {vendor_b}가 {int(abs(t_diff)):,}원 더 비쌈")
+                    else:
+                        st.info("가격 동일")
 
-            else:
-                # --- 모바일 버전: 카드(Card) 형태 ---
-                for idx, row in df_merged.iterrows():
-                    with st.container(border=True):
-                        # 헤더: 품목명 + 삭제 버튼
-                        mc1, mc2 = st.columns([8, 2])
-                        mc1.markdown(f"**{row[item_col]}**")
-                        if mc2.button("🗑️", key=f"del_mo_{row['id']}"):
-                            st.session_state.quote_list = [x for x in st.session_state.quote_list if x['id'] != row['id']]
-                            st.rerun()
-                        
-                        # 규격 및 수량
-                        st.text(f"규격: {row['통합규격']} | 수량: {row['수량']:,}개")
-                        st.markdown("---")
-                        
-                        # 업체별 가격 비교
-                        mc3, mc4 = st.columns(2)
-                        with mc3:
-                            st.caption(vendor_a)
-                            st.text(f"단가: {int(row[f'{vendor_a} 단가']):,}원")
-                            st.markdown(f"**합계: {int(row[f'{vendor_a} 합계']):,}원**")
-                        
-                        with mc4:
-                            st.caption(vendor_b)
-                            st.text(f"단가: {int(row[f'{vendor_b} 단가']):,}원")
-                            st.markdown(f"**합계: {int(row[f'{vendor_b} 합계']):,}원**")
-                        
-                        # 최종 차액 강조
-                        t_diff = row['총 차액']
-                        if t_diff > 0:
-                            st.success(f"💰 {vendor_b}가 {int(t_diff):,}원 더 저렴함 (이득)")
-                        elif t_diff < 0:
-                            st.error(f"💸 {vendor_b}가 {int(abs(t_diff)):,}원 더 비쌈 (손해)")
-                        else:
-                            st.info("가격 동일")
+            st.markdown('</div>', unsafe_allow_html=True)
+
 
             # ---------------------------------------------------------
             # 5. 최종 결과 요약 (화면 하단 배치)
