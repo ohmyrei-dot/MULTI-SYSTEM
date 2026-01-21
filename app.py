@@ -258,7 +258,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (구조 전면 재편 - 필터 연동, 가로 배치)
+# 3. 매출 단가 조회 시스템 (PC 레이아웃 최적화 & 히스토리 표 표시)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -326,66 +326,61 @@ def run_sales_system():
         )
 
         # -----------------------------------------------------------
-        # 3. 연동형 필터 (Cascading Filters)
+        # 3. 데이터 필터 (PC 레이아웃 최적화)
         # -----------------------------------------------------------
         st.subheader("🔍 데이터 필터")
         
-        # 레이아웃을 4분할로 (업체, 품목, 규격, 비고1)
-        fc1, fc2, fc3, fc4 = st.columns(4)
-
-        # (1) 업체 선택
+        # (1) 상단: 업체 선택 (가로 전체)
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
         default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전']
         default_vendor_selection = [v for v in default_targets if v in all_vendors]
 
-        with fc1:
-            selected_vendors = st.multiselect(
-                "🏢 업체",
-                options=all_vendors,
-                default=default_vendor_selection
-            )
+        selected_vendors = st.multiselect(
+            "🏢 조회할 업체 선택",
+            options=all_vendors,
+            default=default_vendor_selection
+        )
+
+        # (2) 하단: 품목 / 규격 / 비고 (3분할) - 기본값 Empty
+        fc1, fc2, fc3 = st.columns(3)
         
-        # (2) 품목 선택
+        # -- 품목 --
         all_items_sorted = df_sorted['품목'].unique().tolist()
-        with fc2:
+        with fc1:
             selected_items = st.multiselect(
                 "📦 품목",
                 options=all_items_sorted,
-                default=all_items_sorted
+                default=[]  # 기본값 비움
             )
         
-        # --- 연동 필터링 시작 ---
+        # -- 규격 --
         # 선택된 품목에 해당하는 데이터만 1차 필터링
         if selected_items:
             df_filtered_step1 = df_sorted[df_sorted['품목'].isin(selected_items)]
         else:
-            df_filtered_step1 = df_sorted # 아무것도 선택 안하면 전체 기준 (또는 빈값)
+            df_filtered_step1 = df_sorted # 전체
 
-        # (3) 규격 선택 (선택된 품목에 있는 규격만 표시)
         available_specs = df_filtered_step1['규격'].unique().tolist()
-        # 규격도 정렬 순서 유지 (df_sorted가 이미 정렬됨)
-        
-        with fc3:
+        with fc2:
             selected_specs = st.multiselect(
                 "📏 규격",
                 options=available_specs,
-                default=available_specs
+                default=[]  # 기본값 비움
             )
         
+        # -- 비고 --
         # 선택된 규격에 해당하는 데이터만 2차 필터링
         if selected_specs:
             df_filtered_step2 = df_filtered_step1[df_filtered_step1['규격'].isin(selected_specs)]
         else:
             df_filtered_step2 = df_filtered_step1
 
-        # (4) 비고1 선택 (선택된 품목/규격에 있는 비고만 표시)
         available_notes = df_filtered_step2[note_col].unique().tolist()
-        
-        with fc4:
+        with fc3:
             selected_notes = st.multiselect(
                 "📝 비고",
                 options=available_notes,
-                default=available_notes
+                default=[]  # 기본값 비움
             )
         
         # 최종 데이터 필터링
@@ -424,13 +419,15 @@ def run_sales_system():
             valid_vendors = sorted([v for v in selected_vendors if v in df_pivot.columns])
             df_display = df_pivot[valid_vendors]
 
-            # [소수점 제거 및 빈칸 처리 함수]
+            # [소수점 제거 및 빈칸 처리 함수 + 오류 방지]
             def format_price_int(val):
                 if pd.isna(val) or val == "":
                     return ""
                 try:
+                    # 문자가 섞여있을 경우 int() 변환 실패 가능성 대비
                     return f"{int(val):,}"
                 except:
+                    # 변환 실패 시 값 그대로 반환 (오류 방지)
                     return str(val)
 
             # 포맷 적용
@@ -460,7 +457,7 @@ def run_sales_system():
         st.divider()
 
         # -----------------------------------------------------------
-        # 6. 하단: 업체별 히스토리
+        # 6. 하단: 업체별 히스토리 (그래프 제거, 표만 표시)
         # -----------------------------------------------------------
         st.subheader("📜 업체별 단가 변동 히스토리")
         
@@ -499,14 +496,17 @@ def run_sales_system():
 
             if history_data:
                 hist_df = pd.DataFrame(list(history_data.items()), columns=['날짜', '단가'])
+                # 날짜 정렬을 위해 변환
                 hist_df['dt'] = pd.to_datetime(hist_df['날짜'], errors='coerce')
                 hist_df = hist_df.sort_values(by='dt')
                 
-                st.line_chart(hist_df.set_index('날짜')['단가'])
-                
+                # 표용 데이터 (정수형 포맷팅)
                 hist_df_display = hist_df[['날짜', '단가']].copy()
-                hist_df_display['단가'] = hist_df_display['단가'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "")
+                hist_df_display['단가'] = hist_df_display['단가'].apply(
+                    lambda x: f"{int(x):,}" if isinstance(x, (int, float)) and pd.notna(x) else str(x)
+                )
                 
+                # 그래프 대신 표만 출력 (가로 형태)
                 st.dataframe(hist_df_display.set_index('날짜').T, use_container_width=True)
             else:
                 st.info("과거 단가 기록이 없습니다.")
