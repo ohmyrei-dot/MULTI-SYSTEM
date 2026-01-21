@@ -326,7 +326,6 @@ def run_sales_system():
         
         # (1) 상단: 업체 선택 (가로 전체)
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
-        # '전체 선택' 옵션 추가
         vendor_options = ['전체 선택'] + all_vendors
         
         default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전']
@@ -338,7 +337,6 @@ def run_sales_system():
             default=default_vendor_selection
         )
 
-        # '전체 선택' 처리 로직
         if '전체 선택' in selected_vendors_raw:
             final_selected_vendors = all_vendors
         else:
@@ -358,7 +356,6 @@ def run_sales_system():
                 default=[]  # 기본값 비움
             )
         
-        # 품목 필터링 로직
         if not selected_items_raw or '전체 선택' in selected_items_raw:
             df_filtered_step1 = df_sorted # 전체
         else:
@@ -375,7 +372,6 @@ def run_sales_system():
                 default=[]  # 기본값 비움
             )
         
-        # 규격 필터링 로직
         if not selected_specs_raw or '전체 선택' in selected_specs_raw:
             df_filtered_step2 = df_filtered_step1
         else:
@@ -392,7 +388,6 @@ def run_sales_system():
                 default=[]  # 기본값 비움
             )
         
-        # 최종 데이터 필터링
         if not selected_notes_raw or '전체 선택' in selected_notes_raw:
             df_final = df_filtered_step2
         else:
@@ -401,7 +396,6 @@ def run_sales_system():
         # -----------------------------------------------------------
         # 4. 피벗 테이블 및 가공
         # -----------------------------------------------------------
-        
         unique_keys = df_final[['품목', '규격', note_col, '단위']].drop_duplicates()
         
         if not df_final.empty:
@@ -419,7 +413,6 @@ def run_sales_system():
             df_pivot = df_pivot.reindex(final_index)
             df_pivot.index.names = ['품목', '규격', note_col, '단위']
 
-            # 업체 컬럼 필터링 (전체 선택 로직 반영)
             valid_vendors = sorted([v for v in final_selected_vendors if v in df_pivot.columns])
             df_display = df_pivot[valid_vendors]
 
@@ -433,9 +426,6 @@ def run_sales_system():
 
             df_display = df_display.applymap(format_price_int)
 
-            # -----------------------------------------------------------
-            # 5. 화면 출력
-            # -----------------------------------------------------------
             st.divider()
             st.subheader("📋 업체별 현재 매출단가 비교")
             st.caption(f"💡 기준 단가: {current_price_col} (소수점 제거됨)")
@@ -457,56 +447,139 @@ def run_sales_system():
         st.divider()
 
         # -----------------------------------------------------------
-        # 6. 하단: 업체별 히스토리
+        # 6. 하단: 업체별 히스토리 (레이아웃 및 로직 변경)
         # -----------------------------------------------------------
         st.subheader("📜 업체별 단가 변동 히스토리")
         
-        hc1, hc2 = st.columns(2)
+        # 4분할 레이아웃
+        hc1, hc2, hc3, hc4 = st.columns(4)
         
+        # (1) 업체: Single Select
         with hc1:
-            # 히스토리 업체 선택에도 '전체 선택' 대신 전체 리스트 사용
-            sel_vendor = st.selectbox("히스토리 조회 업체", all_vendors)
+            sel_vendor = st.selectbox("업체 (단일 선택)", all_vendors)
             
-        vendor_items_df = df_sorted[df_sorted['매출업체'] == sel_vendor]
-        vendor_items_df['display_name'] = vendor_items_df.apply(
-            lambda x: f"{x['품목']} | {x['규격']} | {x[note_col]} ({x['단위']})", axis=1
-        )
-        item_options_hist = vendor_items_df['display_name'].unique().tolist()
+        # 선택된 업체의 데이터만 확보 (정렬 유지)
+        vendor_df = df_sorted[df_sorted['매출업체'] == sel_vendor]
+
+        # (2) 품목: Multi Select (Cascading)
+        # 해당 업체의 품목 목록
+        v_items = vendor_items = vendor_df['품목'].unique().tolist()
+        v_item_opts = ['전체 선택'] + v_items
         
         with hc2:
-            sel_item_display = st.selectbox("히스토리 조회 품목", item_options_hist)
-
-        if sel_vendor and sel_item_display:
-            selected_row = vendor_items_df[vendor_items_df['display_name'] == sel_item_display].iloc[0]
+            sel_hist_items = st.multiselect("품목 (다중)", v_item_opts, default=[])
             
-            st.markdown(f"**[{sel_vendor}]** - **{sel_item_display}** 과거 단가")
-            
-            history_data = {}
-            for col in df_sales.columns:
-                if col in ['품목', '규격', note_col, '단위', '매출업체', current_price_col, 
-                           'rank_item', 'rank_note_type', 'rank_note_num', 'rank_spec_num']:
-                    continue
-                
-                val = selected_row.get(col)
-                if pd.isna(val) or val == 0 or val == "":
-                    continue
-                
-                clean_col_name = str(col).replace('과거매출단가', '').replace('_', ' ').strip()
-                history_data[clean_col_name] = val
+        if not sel_hist_items or '전체 선택' in sel_hist_items:
+            # 전체 선택 or 빈 값(하지만 빈값이면 표 안그림)
+            # 여기서는 필터링용 데이터셋만 정의
+            hist_df_step1 = vendor_df
+        else:
+            hist_df_step1 = vendor_df[vendor_df['품목'].isin(sel_hist_items)]
 
-            if history_data:
-                hist_df = pd.DataFrame(list(history_data.items()), columns=['날짜', '단가'])
-                hist_df['dt'] = pd.to_datetime(hist_df['날짜'], errors='coerce')
-                hist_df = hist_df.sort_values(by='dt')
-                
-                hist_df_display = hist_df[['날짜', '단가']].copy()
-                hist_df_display['단가'] = hist_df_display['단가'].apply(
-                    lambda x: f"{int(x):,}" if isinstance(x, (int, float)) and pd.notna(x) else str(x)
-                )
-                
-                st.dataframe(hist_df_display.set_index('날짜').T, use_container_width=True)
+        # (3) 규격: Multi Select
+        v_specs = hist_df_step1['규격'].unique().tolist()
+        v_spec_opts = ['전체 선택'] + v_specs
+        
+        with hc3:
+            sel_hist_specs = st.multiselect("규격 (다중)", v_spec_opts, default=[])
+            
+        if not sel_hist_specs or '전체 선택' in sel_hist_specs:
+            hist_df_step2 = hist_df_step1
+        else:
+            hist_df_step2 = hist_df_step1[hist_df_step1['규격'].isin(sel_hist_specs)]
+
+        # (4) 비고: Multi Select
+        v_notes = hist_df_step2[note_col].unique().tolist()
+        v_note_opts = ['전체 선택'] + v_notes
+        
+        with hc4:
+            sel_hist_notes = st.multiselect("비고 (다중)", v_note_opts, default=[])
+
+        if not sel_hist_notes or '전체 선택' in sel_hist_notes:
+            hist_df_final = hist_df_step2
+        else:
+            hist_df_final = hist_df_step2[hist_df_step2[note_col].isin(sel_hist_notes)]
+
+        # [표시 로직]
+        # 사용자 요구사항: "사용자가 직접 항목을 선택해야 표가 나타나게 해줘"
+        # 즉, 필터가 비어있으면 보여주지 않음. (전체 선택은 선택한 것으로 간주)
+        
+        is_item_selected = bool(sel_hist_items)
+        is_spec_selected = bool(sel_hist_specs)
+        is_note_selected = bool(sel_hist_notes)
+        
+        # 셋 다 비어있으면(False) 안내 메시지
+        if not (is_item_selected or is_spec_selected or is_note_selected):
+            st.info("👆 조회할 품목, 규격, 또는 비고를 선택해주세요.")
+        else:
+            # 데이터 가공 및 피벗
+            # 히스토리 컬럼 추출
+            history_cols = [c for c in df_sales.columns if '과거매출단가' in str(c)]
+            
+            if not history_cols:
+                st.warning("과거 단가 데이터(열)가 없습니다.")
+            elif hist_df_final.empty:
+                st.warning("조건에 맞는 데이터가 없습니다.")
             else:
-                st.info("과거 단가 기록이 없습니다.")
+                # Melting or Constructing List
+                # 우리는 (Item, Spec, Note, Unit) 별로 (Date) 컬럼의 값을 보여줘야 함
+                # 원하는 형태: Index=[Item, Spec, Note, Unit], Cols=[Date], Val=[Price]
+                
+                # 먼저 필요한 컬럼만 추림: 식별자 + 히스토리컬럼
+                id_cols = ['품목', '규격', note_col, '단위']
+                target_df = hist_df_final[id_cols + history_cols].copy()
+                
+                # Melt to long format
+                melted = target_df.melt(id_vars=id_cols, value_vars=history_cols, var_name='raw_date', value_name='price')
+                
+                # 날짜 추출 및 변환
+                # 예: '과거매출단가_24/10/01' -> '24/10/01'
+                melted['date_str'] = melted['raw_date'].astype(str).str.replace('과거매출단가', '').str.replace('_', ' ').str.strip()
+                
+                # 빈 값 제거
+                melted = melted.dropna(subset=['price'])
+                melted = melted[melted['price'] != 0]
+                melted = melted[melted['price'] != ""]
+                
+                if melted.empty:
+                    st.info("해당 조건의 과거 단가 기록이 없습니다.")
+                else:
+                    # Pivot
+                    # index 순서는 hist_df_final(이미 정렬됨)의 순서를 따르는게 좋음
+                    # 하지만 pivot_table은 인덱스를 정렬해버림.
+                    # 따라서 pivot 후 reindex 필요.
+                    
+                    hist_pivot = melted.pivot_table(
+                        index=id_cols,
+                        columns='date_str',
+                        values='price',
+                        aggfunc='first'
+                    )
+                    
+                    # 날짜 컬럼 정렬 (오래된 순 -> 최신 순? 보통 최신이 오른쪽)
+                    # 문자열 날짜를 datetime으로 변환해 정렬
+                    date_cols = hist_pivot.columns.tolist()
+                    try:
+                        sorted_dates = sorted(date_cols, key=lambda x: pd.to_datetime(x, format='%y/%m/%d', errors='ignore'))
+                    except:
+                        sorted_dates = sorted(date_cols)
+                        
+                    hist_pivot = hist_pivot[sorted_dates]
+                    
+                    # 행 정렬 (Natural Sort 유지)
+                    # hist_df_final에서 유니크 키 추출
+                    row_order = hist_df_final[id_cols].drop_duplicates()
+                    target_idx = pd.MultiIndex.from_frame(row_order)
+                    final_idx = target_idx.intersection(hist_pivot.index)
+                    # 순서 유지
+                    final_idx = target_idx[target_idx.isin(final_idx)]
+                    
+                    hist_pivot = hist_pivot.reindex(final_idx)
+                    
+                    # 포맷팅
+                    hist_pivot_display = hist_pivot.applymap(format_price_int)
+                    
+                    st.dataframe(hist_pivot_display, use_container_width=True)
 
     except Exception as e:
         st.error(f"오류 발생: {e}")
