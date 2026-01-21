@@ -2,14 +2,19 @@ import streamlit as st
 import pandas as pd
 import os
 
-# 페이지 기본 설정
+# -----------------------------------------------------------------------------
+# 1. 페이지 공통 설정 (전역 설정)
+# -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="스마트 견적서 작성 시스템",
-    page_icon="📝",
+    page_title="스마트 견적서 및 단가 관리",
+    page_icon="📊",
     layout="wide"
 )
 
-def main():
+# -----------------------------------------------------------------------------
+# 2. 기존 기능: 매입 견적 비교 시스템 (수정 없음)
+# -----------------------------------------------------------------------------
+def run_purchase_system():
     # ---------------------------------------------------------
     # CSS 설정: 제목이 글자 중간에서 끊기지 않도록 단어 단위 줄바꿈(keep-all) 적용
     # ---------------------------------------------------------
@@ -298,5 +303,119 @@ def main():
         st.error("오류가 발생했습니다.")
         st.error(f"상세 내용: {str(e)}")
 
+
+# -----------------------------------------------------------------------------
+# 3. 새 기능: 매출 단가 조회 시스템
+# -----------------------------------------------------------------------------
+def run_sales_system():
+    st.title("📈 매출 단가 조회")
+    st.markdown("매출 단가를 확인하고 과거 변동 내역을 조회합니다.")
+    
+    file_path = '단가표.xlsx'
+    
+    if not os.path.exists(file_path):
+        st.error(f"🚨 '{file_path}' 파일이 없습니다.")
+        return
+
+    # --- 1) 매출 단가표 (Sales Price) ---
+    try:
+        # '매출단가' 시트 로드
+        df_sales = pd.read_excel(file_path, sheet_name='매출단가')
+        
+        # 필터링 UI
+        st.sidebar.header("🔍 검색 필터")
+        
+        # 품목 필터
+        if '품목' in df_sales.columns:
+            all_items = sorted(df_sales['품목'].unique().astype(str))
+            sel_item = st.sidebar.selectbox("품목 선택", ["전체"] + all_items)
+        else:
+            sel_item = "전체"
+            
+        # 규격 필터
+        if '규격' in df_sales.columns:
+            all_specs = sorted(df_sales['규격'].unique().astype(str))
+            sel_spec = st.sidebar.selectbox("규격 선택", ["전체"] + all_specs)
+        else:
+            sel_spec = "전체"
+
+        # 데이터 필터링 적용
+        df_filtered = df_sales.copy()
+        if sel_item != "전체":
+            df_filtered = df_filtered[df_filtered['품목'] == sel_item]
+        if sel_spec != "전체":
+            df_filtered = df_filtered[df_filtered['규격'] == sel_spec]
+            
+        # 표 보여주기
+        st.subheader("📋 매출 단가표")
+        st.dataframe(df_filtered, use_container_width=True, hide_index=True)
+        
+    except ValueError:
+        st.warning("⚠️ 엑셀 파일에 '매출단가' 시트가 없습니다.")
+    except Exception as e:
+        st.error(f"매출 단가 로드 중 오류: {e}")
+
+    st.divider()
+
+    # --- 2) 단가 히스토리 (Price History) ---
+    st.subheader("📜 단가 변동 히스토리")
+    
+    try:
+        # '단가 히스토리' 시트 로드
+        df_history = pd.read_excel(file_path, sheet_name='단가 히스토리')
+        
+        # 히스토리 조회를 위한 선택박스
+        c1, c2 = st.columns(2)
+        
+        # 업체 목록 추출 (단가 히스토리 시트에 '업체' 컬럼이 있다고 가정)
+        if '업체' in df_history.columns:
+            hist_vendors = sorted(df_history['업체'].unique().astype(str))
+            with c1:
+                sel_hist_vendor = st.selectbox("업체 선택 (히스토리)", ["전체"] + hist_vendors)
+        else:
+            sel_hist_vendor = "전체"
+
+        # 품목 목록 추출
+        if '품목' in df_history.columns:
+            hist_items = sorted(df_history['품목'].unique().astype(str))
+            with c2:
+                sel_hist_item = st.selectbox("품목 선택 (히스토리)", ["전체"] + hist_items)
+        else:
+            sel_hist_item = "전체"
+
+        # 히스토리 필터링
+        df_hist_view = df_history.copy()
+        
+        if sel_hist_vendor != "전체":
+            df_hist_view = df_hist_view[df_hist_view['업체'] == sel_hist_vendor]
+        
+        if sel_hist_item != "전체":
+            df_hist_view = df_hist_view[df_hist_view['품목'] == sel_hist_item]
+        
+        # 날짜순 정렬 (날짜 컬럼이 있다고 가정)
+        date_cols = [c for c in df_hist_view.columns if '날짜' in c or '일자' in c or 'Date' in c]
+        if date_cols:
+            df_hist_view = df_hist_view.sort_values(by=date_cols[0], ascending=False)
+
+        if not df_hist_view.empty:
+            st.dataframe(df_hist_view, use_container_width=True, hide_index=True)
+        else:
+            st.info("조건에 맞는 히스토리 내역이 없습니다.")
+
+    except ValueError:
+        st.warning("⚠️ 엑셀 파일에 '단가 히스토리' 시트가 없습니다.")
+    except Exception as e:
+        st.error(f"히스토리 로드 중 오류: {e}")
+
+
+# -----------------------------------------------------------------------------
+# 4. 메인 실행 컨트롤러
+# -----------------------------------------------------------------------------
 if __name__ == "__main__":
-    main()
+    # 사이드바 메뉴 구성
+    menu = st.sidebar.selectbox("기능 선택", ["매입 견적 비교", "매출 단가 조회"])
+    
+    if menu == "매입 견적 비교":
+        run_purchase_system()
+    elif menu == "매출 단가 조회":
+        run_sales_system()
