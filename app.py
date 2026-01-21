@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# 2. 매입 견적 비교 시스템
+# 2. 매입 견적 비교 시스템 (기존 로직 유지)
 # -----------------------------------------------------------------------------
 def run_purchase_system():
     # CSS: 제목 줄바꿈 설정
@@ -37,7 +37,7 @@ def run_purchase_system():
         return
 
     try:
-        # [수정 1] 시트 이름 변경: 'Purchase_매입단가'
+        # [데이터 로드] 매입 견적 시트
         df_raw = pd.read_excel(file_path, sheet_name='Purchase_매입단가')
         
         cols = df_raw.columns.tolist()
@@ -258,137 +258,205 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (규칙 정렬 및 그래프 기능 추가)
+# 3. 매출 단가 조회 시스템 (구조 개편)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
-    st.markdown("매출 단가를 확인하고 과거 변동 내역을 조회합니다.")
+    st.markdown("품목별 매출 단가를 한눈에 비교하고 히스토리를 확인합니다.")
     
     file_path = '단가표.xlsx'
-    
     if not os.path.exists(file_path):
         st.error(f"🚨 '{file_path}' 파일이 없습니다.")
         return
 
     try:
-        # [수정 1] 시트 이름 변경: 'Sales_매출단가'
+        # 1. 데이터 로드 (시트명: Sales_매출단가)
         df_sales = pd.read_excel(file_path, sheet_name='Sales_매출단가')
         
-        # [수정 2] 품목 정렬 로직 (Custom Sorting)
-        # 1. 품목 우선순위 목록
+        # 컬럼명 유효성 검사 (사용자 요청 컬럼: 품목, 규격, 비고 1, 매출업체, 현재매출단가)
+        # '비고 1'이 없을 경우 '비고'로 대체 처리
+        note_col = '비고 1' if '비고 1' in df_sales.columns else '비고'
+        if note_col not in df_sales.columns:
+            # 비고 컬럼이 아예 없으면 빈 컬럼 생성
+            df_sales[note_col] = ""
+            
+        required_cols = ['품목', '규격', '매출업체', '현재매출단가']
+        missing_cols = [c for c in required_cols if c not in df_sales.columns]
+        
+        if missing_cols:
+            st.error(f"엑셀 파일에 필수 컬럼이 없습니다: {missing_cols}")
+            return
+
+        # -----------------------------------------------------------
+        # 2. 정렬 로직 (엄격한 규칙 적용)
+        # -----------------------------------------------------------
+        
+        # (1) 품목 우선순위
         priority_items = ['안전망1cm', '안전망2cm', 'pp로프', '와이어로프', '와이어클립', '멀티망', '럿셀망', '케이블타이']
         priority_map = {item: i for i, item in enumerate(priority_items)}
-
-        # 2. 비고 우선순위 목록
-        # [KS] -> [빈값/None] -> [KS로프가공] -> [로프가공]
+        
+        # (2) 비고 우선순위 (KS포함 -> KS없는것 -> KS로프가공 -> 로프가공)
         def get_note_rank(note):
-            note = str(note).strip()
-            if note == 'KS': return 0
-            if note == 'nan' or note == '' or note == 'None': return 1
-            if note == 'KS로프가공': return 2
-            if note == '로프가공': return 3
-            return 4 # 그 외
+            s = str(note).strip()
+            if s == 'KS로프가공': return 2
+            if s == '로프가공': return 3
+            if 'KS' in s: return 0  # KS 포함
+            return 1  # KS 없는 것 (nan 등 포함)
 
-        # 3. 규격 숫자 추출 (오름차순용)
+        # (3) 규격 오름차순 (숫자 추출)
         def extract_spec_number(spec):
             if pd.isna(spec): return float('inf')
-            # 문자열에서 첫 번째 숫자(정수 혹은 소수) 추출
             match = re.search(r'\d+(\.\d+)?', str(spec))
             if match:
                 return float(match.group())
-            return float('inf') # 숫자가 없으면 뒤로 보냄
+            return float('inf')
 
-        # 정렬을 위한 임시 컬럼 생성
-        df_sales['temp_item_rank'] = df_sales['품목'].map(lambda x: priority_map.get(x, 999)) # 없으면 999
-        
-        # '비고' 컬럼이 있는지 확인 후 랭크 매핑
-        if '비고' in df_sales.columns:
-            df_sales['temp_note_rank'] = df_sales['비고'].apply(get_note_rank)
-        else:
-            df_sales['temp_note_rank'] = 1 # 비고 없으면 기본값
+        # 정렬용 임시 컬럼 생성
+        df_sales['rank_item'] = df_sales['품목'].map(lambda x: priority_map.get(x, 999))
+        df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
+        df_sales['rank_spec'] = df_sales['규격'].apply(extract_spec_number)
 
-        # '규격' 컬럼이 있는지 확인 후 숫자 추출
-        if '규격' in df_sales.columns:
-            df_sales['temp_spec_num'] = df_sales['규격'].apply(extract_spec_number)
-        else:
-            df_sales['temp_spec_num'] = 0
-
-        # 정렬 적용 (품목우선순위 -> 비고순 -> 규격숫자순)
-        df_sales = df_sales.sort_values(
-            by=['temp_item_rank', 'temp_note_rank', 'temp_spec_num'],
+        # 원본 데이터 정렬
+        df_sorted = df_sales.sort_values(
+            by=['rank_item', 'rank_note', 'rank_spec'],
             ascending=[True, True, True]
         )
 
-        # 임시 컬럼 제거 (화면에 안보이게)
-        df_display = df_sales.drop(columns=['temp_item_rank', 'temp_note_rank', 'temp_spec_num'])
-
-        # --- 필터링 UI ---
-        st.sidebar.header("🔍 검색 필터")
+        # -----------------------------------------------------------
+        # 3. 피벗 테이블 생성 및 레이아웃
+        # -----------------------------------------------------------
         
-        # 품목 필터 (정렬된 순서대로 표시)
-        all_items = df_sales['품목'].unique().tolist() # 이미 정렬됨
-        # '전체' 옵션을 맨 앞에 추가
-        filter_item = st.sidebar.selectbox("품목 선택", ["전체"] + all_items)
+        # 피벗 생성 (인덱스: 품목, 규격, 비고 / 컬럼: 매출업체 / 값: 현재매출단가)
+        # pivot_table을 쓰면 정렬이 인덱스 알파벳순으로 바뀔 수 있으므로 주의 필요
+        # 따라서 위에서 정렬한 순서(index)를 기억했다가 reindex로 복구하거나
+        # 정렬된 유니크 키 리스트를 만들어야 함.
         
-        if filter_item != "전체":
-            df_display = df_display[df_display['품목'] == filter_item]
-            # 규격 필터는 품목 선택 시에만 해당 품목의 규격으로 좁힘
-            if '규격' in df_display.columns:
-                available_specs = df_display['규격'].unique().tolist()
-                filter_spec = st.sidebar.selectbox("규격 선택", ["전체"] + list(map(str, available_specs)))
-                if filter_spec != "전체":
-                    df_display = df_display[df_display['규격'].astype(str) == filter_spec]
-
-        # --- [수정 3] 화면 구성 및 선택 기능 ---
-        st.subheader("📋 매출 단가표 (행을 선택하면 그래프가 표시됩니다)")
+        # 정렬된 순서대로 유니크한 인덱스 키 추출 (중복 제거하되 순서 유지)
+        unique_keys = df_sorted[['품목', '규격', note_col]].drop_duplicates()
         
-        # 데이터프레임 표시 (선택 가능하게 설정)
-        event = st.dataframe(
-            df_display,
-            use_container_width=True,
-            hide_index=True,
-            on_select="rerun",  # 선택 시 리런
-            selection_mode="single-row" # 한 줄만 선택
+        # 피벗 테이블 생성
+        df_pivot = df_sorted.pivot_table(
+            index=['품목', '규격', note_col],
+            columns='매출업체',
+            values='현재매출단가',
+            aggfunc='first' # 중복 시 첫 번째 값
         )
+        
+        # 피벗 후 인덱스가 자동 정렬되어버리므로, 아까 추출한 unique_keys 순서대로 재정렬(Reindex)
+        # unique_keys를 MultiIndex로 변환
+        target_index = pd.MultiIndex.from_frame(unique_keys)
+        # reindex 수행 (존재하는 키만 사용)
+        df_pivot = df_pivot.reindex(target_index)
+        
+        # 인덱스 이름 정리
+        df_pivot.index.names = ['품목', '규격', note_col]
 
-        # --- [수정 3-1] 그래프 그리기 ---
-        if event.selection.rows:
-            selected_index = event.selection.rows[0]
-            # 필터링된 데이터프레임(df_display) 기준으로 행 추출
-            # 주의: df_display는 인덱스가 재설정되지 않았을 수 있으므로 iloc 사용
-            selected_row = df_display.iloc[selected_index]
+        # -----------------------------------------------------------
+        # 4. 화면 출력 (피벗 테이블)
+        # -----------------------------------------------------------
+        st.subheader("📋 업체별 현재 매출단가 비교")
+        st.caption("💡 가로로 스크롤하여 업체별 단가를 비교하세요.")
+        
+        # 컬럼 설정 (비고 너비 확보 등)
+        # Streamlit Dataframe 설정
+        st.dataframe(
+            df_pivot,
+            use_container_width=True,
+            column_config={
+                note_col: st.column_config.TextColumn(
+                    note_col,
+                    width="medium", # 너비 확보
+                    help="비고 사항"
+                )
+            }
+        )
+        
+        st.divider()
+
+        # -----------------------------------------------------------
+        # 5. 업체별 히스토리 조회 (하단 영역)
+        # -----------------------------------------------------------
+        st.subheader("📜 업체별 단가 변동 히스토리")
+        
+        hc1, hc2 = st.columns(2)
+        
+        # (1) 업체 선택
+        all_vendors = sorted(df_sales['매출업체'].unique().astype(str))
+        with hc1:
+            sel_vendor = st.selectbox("업체 선택", all_vendors)
             
-            st.divider()
-            st.subheader(f"📈 단가 변동 그래프: {selected_row.get('품목', '품목')} {selected_row.get('규격', '')}")
+        # (2) 품목 선택 (해당 업체의 품목만 필터링 or 전체 품목)
+        # 편의를 위해 정렬된 순서대로 품목 리스트 제공
+        vendor_items_df = df_sorted[df_sorted['매출업체'] == sel_vendor]
+        # 품목+규격+비고를 합쳐서 보여주면 선택이 쉬움
+        vendor_items_df['display_name'] = vendor_items_df.apply(
+            lambda x: f"{x['품목']} | {x['규격']} ({x[note_col]})", axis=1
+        )
+        
+        item_options = vendor_items_df['display_name'].unique().tolist()
+        
+        with hc2:
+            sel_item_display = st.selectbox("품목 선택 (규격/비고 포함)", item_options)
+
+        if sel_vendor and sel_item_display:
+            # 선택한 정보로 해당 행 찾기
+            selected_row = vendor_items_df[vendor_items_df['display_name'] == sel_item_display].iloc[0]
             
-            # 날짜 형식의 컬럼만 찾아서 그래프 데이터 생성
-            # (컬럼명이 날짜로 변환 가능한 경우를 찾음)
-            date_price_data = {}
-            for col in df_display.columns:
-                # 품목, 규격, 비고 등 메타데이터 컬럼 제외
-                if str(col) in ['품목', '규격', '비고', '단위', '업체']:
+            st.markdown(f"**[{sel_vendor}]** - **{sel_item_display}** 의 과거 단가 내역")
+            
+            # 과거 단가 컬럼 찾기 및 데이터 추출
+            # 규칙: 컬럼명에 날짜가 있거나 '과거매출단가'가 포함된 열
+            history_data = {}
+            
+            for col in df_sales.columns:
+                # 메타 데이터 제외
+                if col in ['품목', '규격', note_col, '매출업체', '현재매출단가', 'rank_item', 'rank_note', 'rank_spec']:
                     continue
                 
-                # 컬럼명이 날짜인지 확인
-                try:
-                    # 엑셀 날짜 헤더는 보통 datetime 객체거나 '2024-01-01' 같은 문자열
-                    dt = pd.to_datetime(col)
-                    val = selected_row[col]
-                    # 값이 숫자일 때만 추가
-                    if pd.notnull(val) and isinstance(val, (int, float)):
-                        date_price_data[dt] = val
-                except:
-                    continue # 날짜가 아니면 패스
+                # 값 가져오기
+                val = selected_row.get(col)
+                if pd.isna(val) or val == 0:
+                    continue
+                
+                # 컬럼명 정제 (사용자 요청: '과거매출단가' 문구 제거)
+                # 예: '과거매출단가_24/10/01' -> '24/10/01'
+                # 단순히 문자열 치환 or 정규식 사용
+                clean_col_name = str(col).replace('과거매출단가', '').replace('_', ' ').strip()
+                
+                # 날짜 형식으로 변환 시도 (그래프 정렬용)
+                # 단순 문자열로 저장하되, 딕셔너리 키로 사용
+                history_data[clean_col_name] = val
 
-            if date_price_data:
-                chart_df = pd.DataFrame(list(date_price_data.items()), columns=['날짜', '단가'])
-                chart_df = chart_df.sort_values('날짜')
-                st.line_chart(chart_df.set_index('날짜'))
+            # 현재 단가도 그래프에 포함할지 여부 -> 보통 히스토리는 과거+현재
+            # 현재 단가 추가 (날짜가 오늘이라 가정하거나 '현재'로 표시)
+            # 여기서는 과거 내역만 보여달라는 요청에 집중하되, 데이터가 있으면 표시
+            
+            if history_data:
+                # 데이터프레임 변환
+                hist_df = pd.DataFrame(list(history_data.items()), columns=['날짜', '단가'])
+                
+                # 날짜 컬럼을 실제 datetime으로 변환하여 정렬 시도
+                # 변환 실패하는 텍스트(예: '비고2')는 제외하거나 맨 뒤로
+                def try_parse_date(x):
+                    try:
+                        return pd.to_datetime(x, format='%y/%m/%d', errors='ignore') # 포맷은 예시
+                    except:
+                        return x
+
+                # 정렬을 위해 임시 변환
+                hist_df['dt'] = pd.to_datetime(hist_df['날짜'], errors='coerce')
+                hist_df = hist_df.sort_values(by='dt')
+                
+                # 차트 그리기
+                st.line_chart(hist_df.set_index('날짜')['단가'])
+                
+                # 표로도 보여주기 (가로로)
+                st.dataframe(hist_df[['날짜', '단가']].T, use_container_width=True)
             else:
-                st.info("이 품목은 날짜별 단가 데이터(열)가 없습니다.")
+                st.info("과거 단가 기록이 없습니다.")
 
     except Exception as e:
-        st.error(f"데이터 처리 중 오류 발생: {e}")
+        st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
 # 4. 메인 실행 컨트롤러
