@@ -258,7 +258,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (구조 전면 재편 - 정렬, 필터, 소수점 제거)
+# 3. 매출 단가 조회 시스템 (구조 전면 재편 - 필터 연동, 가로 배치)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -273,7 +273,7 @@ def run_sales_system():
         # 1. 데이터 로드
         df_sales = pd.read_excel(file_path, sheet_name='Sales_매출단가')
         
-        # 컬럼 처리 (비고 1, 단위)
+        # 컬럼 처리
         note_col = '비고 1' if '비고 1' in df_sales.columns else '비고'
         if note_col not in df_sales.columns: df_sales[note_col] = ""
         if '단위' not in df_sales.columns: df_sales['단위'] = ""
@@ -290,26 +290,24 @@ def run_sales_system():
             return
 
         # -----------------------------------------------------------
-        # 2. 정렬 로직 (숫자 인식 강화)
+        # 2. 정렬 로직 (Natural Sort)
         # -----------------------------------------------------------
         
         # [1순위] 품목 우선순위
         priority_items = ['안전망1cm', '안전망2cm', 'pp로프', '와이어로프', '와이어클립', '멀티망', '럿셀망', '케이블타이']
         priority_map = {item: i for i, item in enumerate(priority_items)}
         
-        # [2순위] 비고 우선순위 (KS포함 -> KS없는것 -> KS로프가공 -> 로프가공)
+        # [2순위] 비고 우선순위
         def get_note_type_rank(note):
             s = str(note).strip()
             if s == 'KS로프가공': return 2
             if s == '로프가공': return 3
-            if 'KS' in s: return 0  # KS 포함
-            return 1  # KS 없는 것
+            if 'KS' in s: return 0
+            return 1
 
-        # [숫자 추출 함수] (비고3순위, 규격4순위 공통)
-        # 문자열 내에서 실수를 추출하여 오름차순 정렬 (없으면 inf)
+        # [숫자 추출 함수]
         def extract_number(text):
             if pd.isna(text): return float('inf')
-            # 10mm, 0.5m 등에서 숫자만 추출
             match = re.search(r'\d+(\.\d+)?', str(text))
             if match:
                 return float(match.group())
@@ -328,98 +326,136 @@ def run_sales_system():
         )
 
         # -----------------------------------------------------------
-        # 3. 필터 UI (업체 & 품목)
+        # 3. 연동형 필터 (Cascading Filters)
         # -----------------------------------------------------------
         st.subheader("🔍 데이터 필터")
-        fc1, fc2 = st.columns(2)
+        
+        # 레이아웃을 4분할로 (업체, 품목, 규격, 비고1)
+        fc1, fc2, fc3, fc4 = st.columns(4)
 
         # (1) 업체 선택
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
         default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전']
-        default_selection = [v for v in default_targets if v in all_vendors]
+        default_vendor_selection = [v for v in default_targets if v in all_vendors]
 
         with fc1:
             selected_vendors = st.multiselect(
-                "🏢 조회할 업체 선택",
+                "🏢 업체",
                 options=all_vendors,
-                default=default_selection
+                default=default_vendor_selection
             )
         
-        # (2) 품목 선택 (기본값: 전체)
-        # 정렬된 순서대로 유니크 품목 추출
+        # (2) 품목 선택
         all_items_sorted = df_sorted['품목'].unique().tolist()
-        
         with fc2:
             selected_items = st.multiselect(
-                "📦 조회할 품목 선택",
+                "📦 품목",
                 options=all_items_sorted,
-                default=all_items_sorted  # 전체 선택
+                default=all_items_sorted
             )
+        
+        # --- 연동 필터링 시작 ---
+        # 선택된 품목에 해당하는 데이터만 1차 필터링
+        if selected_items:
+            df_filtered_step1 = df_sorted[df_sorted['품목'].isin(selected_items)]
+        else:
+            df_filtered_step1 = df_sorted # 아무것도 선택 안하면 전체 기준 (또는 빈값)
+
+        # (3) 규격 선택 (선택된 품목에 있는 규격만 표시)
+        available_specs = df_filtered_step1['규격'].unique().tolist()
+        # 규격도 정렬 순서 유지 (df_sorted가 이미 정렬됨)
+        
+        with fc3:
+            selected_specs = st.multiselect(
+                "📏 규격",
+                options=available_specs,
+                default=available_specs
+            )
+        
+        # 선택된 규격에 해당하는 데이터만 2차 필터링
+        if selected_specs:
+            df_filtered_step2 = df_filtered_step1[df_filtered_step1['규격'].isin(selected_specs)]
+        else:
+            df_filtered_step2 = df_filtered_step1
+
+        # (4) 비고1 선택 (선택된 품목/규격에 있는 비고만 표시)
+        available_notes = df_filtered_step2[note_col].unique().tolist()
+        
+        with fc4:
+            selected_notes = st.multiselect(
+                "📝 비고",
+                options=available_notes,
+                default=available_notes
+            )
+        
+        # 최종 데이터 필터링
+        if selected_notes:
+            df_final = df_filtered_step2[df_filtered_step2[note_col].isin(selected_notes)]
+        else:
+            df_final = df_filtered_step2
 
         # -----------------------------------------------------------
         # 4. 피벗 테이블 및 가공
         # -----------------------------------------------------------
         
-        # 품목 필터링 적용
-        df_filtered = df_sorted[df_sorted['품목'].isin(selected_items)]
-
-        # 피벗용 유니크 인덱스 추출 (순서 유지)
-        unique_keys = df_filtered[['품목', '규격', note_col, '단위']].drop_duplicates()
+        # 피벗용 유니크 인덱스 추출 (정렬 순서 유지)
+        unique_keys = df_final[['품목', '규격', note_col, '단위']].drop_duplicates()
         
         # 피벗 테이블 생성
-        df_pivot = df_filtered.pivot_table(
-            index=['품목', '규격', note_col, '단위'],
-            columns='매출업체',
-            values=current_price_col,
-            aggfunc='first'
-        )
-        
-        # 인덱스 순서 복구
-        target_index = pd.MultiIndex.from_frame(unique_keys)
-        # 존재하는 인덱스만 교집합으로 리인덱싱 (필터링된 데이터 기준)
-        final_index = target_index.intersection(df_pivot.index)
-        # 순서 유지를 위해 target_index 순서대로 정렬
-        final_index = target_index[target_index.isin(final_index)]
-        
-        df_pivot = df_pivot.reindex(final_index)
-        df_pivot.index.names = ['품목', '규격', note_col, '단위']
+        if not df_final.empty:
+            df_pivot = df_final.pivot_table(
+                index=['품목', '규격', note_col, '단위'],
+                columns='매출업체',
+                values=current_price_col,
+                aggfunc='first'
+            )
+            
+            # 인덱스 순서 복구
+            target_index = pd.MultiIndex.from_frame(unique_keys)
+            # 존재하는 인덱스만 교집합으로 리인덱싱
+            final_index = target_index.intersection(df_pivot.index)
+            # 순서 유지를 위해 target_index 순서대로 정렬
+            final_index = target_index[target_index.isin(final_index)]
+            
+            df_pivot = df_pivot.reindex(final_index)
+            df_pivot.index.names = ['품목', '규격', note_col, '단위']
 
-        # 업체 컬럼 필터링 및 정렬
-        valid_vendors = sorted([v for v in selected_vendors if v in df_pivot.columns])
-        df_display = df_pivot[valid_vendors]
+            # 업체 컬럼 필터링 및 정렬
+            valid_vendors = sorted([v for v in selected_vendors if v in df_pivot.columns])
+            df_display = df_pivot[valid_vendors]
 
-        # [소수점 제거 및 빈칸 처리 함수]
-        # 값(float) -> "1,000" 문자열로 변환 (빈값은 "")
-        def format_price_int(val):
-            if pd.isna(val) or val == "":
-                return ""
-            try:
-                # 소수점 버림(int) 후 천단위 콤마
-                return f"{int(val):,}"
-            except:
-                return str(val)
+            # [소수점 제거 및 빈칸 처리 함수]
+            def format_price_int(val):
+                if pd.isna(val) or val == "":
+                    return ""
+                try:
+                    return f"{int(val):,}"
+                except:
+                    return str(val)
 
-        # 전체 데이터프레임에 포맷 적용
-        df_display = df_display.applymap(format_price_int)
+            # 포맷 적용
+            df_display = df_display.applymap(format_price_int)
 
-        # -----------------------------------------------------------
-        # 5. 화면 출력
-        # -----------------------------------------------------------
-        st.divider()
-        st.subheader("📋 업체별 현재 매출단가 비교")
-        st.caption(f"💡 기준 단가: {current_price_col} (소수점 제거됨)")
-        
-        st.dataframe(
-            df_display,
-            use_container_width=True,
-            column_config={
-                note_col: st.column_config.TextColumn(
-                    note_col,
-                    width=None, # Auto-fit
-                    help="비고 사항"
-                )
-            }
-        )
+            # -----------------------------------------------------------
+            # 5. 화면 출력
+            # -----------------------------------------------------------
+            st.divider()
+            st.subheader("📋 업체별 현재 매출단가 비교")
+            st.caption(f"💡 기준 단가: {current_price_col} (소수점 제거됨)")
+            
+            st.dataframe(
+                df_display,
+                use_container_width=True,
+                column_config={
+                    note_col: st.column_config.TextColumn(
+                        note_col,
+                        width=None, # Auto-fit
+                        help="비고 사항"
+                    )
+                }
+            )
+        else:
+            st.info("조건에 맞는 데이터가 없습니다.")
         
         st.divider()
 
@@ -433,7 +469,7 @@ def run_sales_system():
         with hc1:
             sel_vendor = st.selectbox("히스토리 조회 업체", all_vendors)
             
-        # 해당 업체의 데이터에서 품목 리스트업
+        # 해당 업체의 데이터에서 품목 리스트업 (전체 데이터 기준)
         vendor_items_df = df_sorted[df_sorted['매출업체'] == sel_vendor]
         vendor_items_df['display_name'] = vendor_items_df.apply(
             lambda x: f"{x['품목']} | {x['규격']} | {x[note_col]} ({x['단위']})", axis=1
@@ -450,7 +486,6 @@ def run_sales_system():
             
             history_data = {}
             for col in df_sales.columns:
-                # 메타/정렬/현재단가 컬럼 제외
                 if col in ['품목', '규격', note_col, '단위', '매출업체', current_price_col, 
                            'rank_item', 'rank_note_type', 'rank_note_num', 'rank_spec_num']:
                     continue
@@ -467,12 +502,10 @@ def run_sales_system():
                 hist_df['dt'] = pd.to_datetime(hist_df['날짜'], errors='coerce')
                 hist_df = hist_df.sort_values(by='dt')
                 
-                # 차트용 데이터 (숫자형 유지)
                 st.line_chart(hist_df.set_index('날짜')['단가'])
                 
-                # 표용 데이터 (정수형 포맷팅)
                 hist_df_display = hist_df[['날짜', '단가']].copy()
-                hist_df_display['단가'] = hist_df_display['단가'].apply(format_price_int)
+                hist_df_display['단가'] = hist_df_display['단가'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "")
                 
                 st.dataframe(hist_df_display.set_index('날짜').T, use_container_width=True)
             else:
