@@ -258,7 +258,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (PC 레이아웃 최적화 & 히스토리 표 표시)
+# 3. 매출 단가 조회 시스템 ('전체 선택' 기능 추가)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -292,12 +292,9 @@ def run_sales_system():
         # -----------------------------------------------------------
         # 2. 정렬 로직 (Natural Sort)
         # -----------------------------------------------------------
-        
-        # [1순위] 품목 우선순위
         priority_items = ['안전망1cm', '안전망2cm', 'pp로프', '와이어로프', '와이어클립', '멀티망', '럿셀망', '케이블타이']
         priority_map = {item: i for i, item in enumerate(priority_items)}
         
-        # [2순위] 비고 우선순위
         def get_note_type_rank(note):
             s = str(note).strip()
             if s == 'KS로프가공': return 2
@@ -305,7 +302,6 @@ def run_sales_system():
             if 'KS' in s: return 0
             return 1
 
-        # [숫자 추출 함수]
         def extract_number(text):
             if pd.isna(text): return float('inf')
             match = re.search(r'\d+(\.\d+)?', str(text))
@@ -313,90 +309,101 @@ def run_sales_system():
                 return float(match.group())
             return float('inf')
 
-        # 랭킹 컬럼 생성
         df_sales['rank_item'] = df_sales['품목'].map(lambda x: priority_map.get(x, 999))
         df_sales['rank_note_type'] = df_sales[note_col].apply(get_note_type_rank)
         df_sales['rank_note_num'] = df_sales[note_col].apply(extract_number)
         df_sales['rank_spec_num'] = df_sales['규격'].apply(extract_number)
 
-        # 정렬 수행
         df_sorted = df_sales.sort_values(
             by=['rank_item', 'rank_note_type', 'rank_note_num', 'rank_spec_num'],
             ascending=[True, True, True, True]
         )
 
         # -----------------------------------------------------------
-        # 3. 데이터 필터 (PC 레이아웃 최적화)
+        # 3. 데이터 필터 (PC 레이아웃 & 전체 선택 기능)
         # -----------------------------------------------------------
         st.subheader("🔍 데이터 필터")
         
         # (1) 상단: 업체 선택 (가로 전체)
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
+        # '전체 선택' 옵션 추가
+        vendor_options = ['전체 선택'] + all_vendors
+        
         default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전']
         default_vendor_selection = [v for v in default_targets if v in all_vendors]
 
-        selected_vendors = st.multiselect(
+        selected_vendors_raw = st.multiselect(
             "🏢 조회할 업체 선택",
-            options=all_vendors,
+            options=vendor_options,
             default=default_vendor_selection
         )
+
+        # '전체 선택' 처리 로직
+        if '전체 선택' in selected_vendors_raw:
+            final_selected_vendors = all_vendors
+        else:
+            final_selected_vendors = selected_vendors_raw
 
         # (2) 하단: 품목 / 규격 / 비고 (3분할) - 기본값 Empty
         fc1, fc2, fc3 = st.columns(3)
         
         # -- 품목 --
         all_items_sorted = df_sorted['품목'].unique().tolist()
+        item_options = ['전체 선택'] + all_items_sorted
+        
         with fc1:
-            selected_items = st.multiselect(
+            selected_items_raw = st.multiselect(
                 "📦 품목",
-                options=all_items_sorted,
+                options=item_options,
                 default=[]  # 기본값 비움
             )
         
-        # -- 규격 --
-        # 선택된 품목에 해당하는 데이터만 1차 필터링
-        if selected_items:
-            df_filtered_step1 = df_sorted[df_sorted['품목'].isin(selected_items)]
-        else:
+        # 품목 필터링 로직
+        if not selected_items_raw or '전체 선택' in selected_items_raw:
             df_filtered_step1 = df_sorted # 전체
+        else:
+            df_filtered_step1 = df_sorted[df_sorted['품목'].isin(selected_items_raw)]
 
+        # -- 규격 --
         available_specs = df_filtered_step1['규격'].unique().tolist()
+        spec_options = ['전체 선택'] + available_specs
+        
         with fc2:
-            selected_specs = st.multiselect(
+            selected_specs_raw = st.multiselect(
                 "📏 규격",
-                options=available_specs,
+                options=spec_options,
                 default=[]  # 기본값 비움
             )
         
-        # -- 비고 --
-        # 선택된 규격에 해당하는 데이터만 2차 필터링
-        if selected_specs:
-            df_filtered_step2 = df_filtered_step1[df_filtered_step1['규격'].isin(selected_specs)]
-        else:
+        # 규격 필터링 로직
+        if not selected_specs_raw or '전체 선택' in selected_specs_raw:
             df_filtered_step2 = df_filtered_step1
+        else:
+            df_filtered_step2 = df_filtered_step1[df_filtered_step1['규격'].isin(selected_specs_raw)]
 
+        # -- 비고 --
         available_notes = df_filtered_step2[note_col].unique().tolist()
+        note_options = ['전체 선택'] + available_notes
+        
         with fc3:
-            selected_notes = st.multiselect(
+            selected_notes_raw = st.multiselect(
                 "📝 비고",
-                options=available_notes,
+                options=note_options,
                 default=[]  # 기본값 비움
             )
         
         # 최종 데이터 필터링
-        if selected_notes:
-            df_final = df_filtered_step2[df_filtered_step2[note_col].isin(selected_notes)]
-        else:
+        if not selected_notes_raw or '전체 선택' in selected_notes_raw:
             df_final = df_filtered_step2
+        else:
+            df_final = df_filtered_step2[df_filtered_step2[note_col].isin(selected_notes_raw)]
 
         # -----------------------------------------------------------
         # 4. 피벗 테이블 및 가공
         # -----------------------------------------------------------
         
-        # 피벗용 유니크 인덱스 추출 (정렬 순서 유지)
         unique_keys = df_final[['품목', '규격', note_col, '단위']].drop_duplicates()
         
-        # 피벗 테이블 생성
         if not df_final.empty:
             df_pivot = df_final.pivot_table(
                 index=['품목', '규격', note_col, '단위'],
@@ -405,32 +412,25 @@ def run_sales_system():
                 aggfunc='first'
             )
             
-            # 인덱스 순서 복구
             target_index = pd.MultiIndex.from_frame(unique_keys)
-            # 존재하는 인덱스만 교집합으로 리인덱싱
             final_index = target_index.intersection(df_pivot.index)
-            # 순서 유지를 위해 target_index 순서대로 정렬
             final_index = target_index[target_index.isin(final_index)]
             
             df_pivot = df_pivot.reindex(final_index)
             df_pivot.index.names = ['품목', '규격', note_col, '단위']
 
-            # 업체 컬럼 필터링 및 정렬
-            valid_vendors = sorted([v for v in selected_vendors if v in df_pivot.columns])
+            # 업체 컬럼 필터링 (전체 선택 로직 반영)
+            valid_vendors = sorted([v for v in final_selected_vendors if v in df_pivot.columns])
             df_display = df_pivot[valid_vendors]
 
-            # [소수점 제거 및 빈칸 처리 함수 + 오류 방지]
             def format_price_int(val):
                 if pd.isna(val) or val == "":
                     return ""
                 try:
-                    # 문자가 섞여있을 경우 int() 변환 실패 가능성 대비
                     return f"{int(val):,}"
                 except:
-                    # 변환 실패 시 값 그대로 반환 (오류 방지)
                     return str(val)
 
-            # 포맷 적용
             df_display = df_display.applymap(format_price_int)
 
             # -----------------------------------------------------------
@@ -457,24 +457,24 @@ def run_sales_system():
         st.divider()
 
         # -----------------------------------------------------------
-        # 6. 하단: 업체별 히스토리 (그래프 제거, 표만 표시)
+        # 6. 하단: 업체별 히스토리
         # -----------------------------------------------------------
         st.subheader("📜 업체별 단가 변동 히스토리")
         
         hc1, hc2 = st.columns(2)
         
         with hc1:
+            # 히스토리 업체 선택에도 '전체 선택' 대신 전체 리스트 사용
             sel_vendor = st.selectbox("히스토리 조회 업체", all_vendors)
             
-        # 해당 업체의 데이터에서 품목 리스트업 (전체 데이터 기준)
         vendor_items_df = df_sorted[df_sorted['매출업체'] == sel_vendor]
         vendor_items_df['display_name'] = vendor_items_df.apply(
             lambda x: f"{x['품목']} | {x['규격']} | {x[note_col]} ({x['단위']})", axis=1
         )
-        item_options = vendor_items_df['display_name'].unique().tolist()
+        item_options_hist = vendor_items_df['display_name'].unique().tolist()
         
         with hc2:
-            sel_item_display = st.selectbox("히스토리 조회 품목", item_options)
+            sel_item_display = st.selectbox("히스토리 조회 품목", item_options_hist)
 
         if sel_vendor and sel_item_display:
             selected_row = vendor_items_df[vendor_items_df['display_name'] == sel_item_display].iloc[0]
@@ -496,17 +496,14 @@ def run_sales_system():
 
             if history_data:
                 hist_df = pd.DataFrame(list(history_data.items()), columns=['날짜', '단가'])
-                # 날짜 정렬을 위해 변환
                 hist_df['dt'] = pd.to_datetime(hist_df['날짜'], errors='coerce')
                 hist_df = hist_df.sort_values(by='dt')
                 
-                # 표용 데이터 (정수형 포맷팅)
                 hist_df_display = hist_df[['날짜', '단가']].copy()
                 hist_df_display['단가'] = hist_df_display['단가'].apply(
                     lambda x: f"{int(x):,}" if isinstance(x, (int, float)) and pd.notna(x) else str(x)
                 )
                 
-                # 그래프 대신 표만 출력 (가로 형태)
                 st.dataframe(hist_df_display.set_index('날짜').T, use_container_width=True)
             else:
                 st.info("과거 단가 기록이 없습니다.")
