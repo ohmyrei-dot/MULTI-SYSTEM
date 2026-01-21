@@ -258,7 +258,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 ('전체 선택' 기능 추가)
+# 3. 매출 단가 조회 시스템 (공백 무시 비교 로직 적용)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -325,10 +325,13 @@ def run_sales_system():
         st.subheader("🔍 데이터 필터")
         
         # (1) 상단: 업체 선택 (가로 전체)
+        # 모든 공백을 제거한 업체명을 비교하기 위해 사용하지만, 
+        # 리스트는 원본 데이터를 기반으로 생성 (중복 제거)
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
         vendor_options = ['전체 선택'] + all_vendors
         
         default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전']
+        # 기본값 선택 시에도 원본 데이터 목록에서 존재하는 것만
         default_vendor_selection = [v for v in default_targets if v in all_vendors]
 
         selected_vendors_raw = st.multiselect(
@@ -413,8 +416,24 @@ def run_sales_system():
             df_pivot = df_pivot.reindex(final_index)
             df_pivot.index.names = ['품목', '규격', note_col, '단위']
 
-            valid_vendors = sorted([v for v in final_selected_vendors if v in df_pivot.columns])
-            df_display = df_pivot[valid_vendors]
+            # [수정: 업체명 비교 로직 개선]
+            # 피벗 테이블의 컬럼(업체명)과 선택된 업체명을 비교할 때 공백을 제거하고 비교
+            pivot_columns = df_pivot.columns
+            valid_columns = []
+            
+            # 선택된 업체 리스트의 공백 제거 버전
+            clean_selected_vendors = [str(v).replace(' ', '') for v in final_selected_vendors]
+            
+            for col in pivot_columns:
+                # 피벗 컬럼명의 공백 제거 버전이 선택 리스트에 있는지 확인
+                if str(col).replace(' ', '') in clean_selected_vendors:
+                    valid_columns.append(col)
+            
+            # 원본 피벗 테이블에서 유효한 컬럼만 선택 (가나다 정렬 등은 유지)
+            # 단, valid_columns 순서가 뒤섞일 수 있으므로 정렬 필요하면 추가 정렬
+            # 여기서는 pivot_columns 순서대로 append 했으므로 기존 순서 유지됨
+            
+            df_display = df_pivot[valid_columns]
 
             def format_price_int(val):
                 if pd.isna(val) or val == "":
@@ -458,20 +477,22 @@ def run_sales_system():
         with hc1:
             sel_vendor = st.selectbox("업체 (단일 선택)", all_vendors)
             
-        # 선택된 업체의 데이터만 확보 (정렬 유지)
-        vendor_df = df_sorted[df_sorted['매출업체'] == sel_vendor]
+        # [수정: 업체명 비교 로직 개선 - 히스토리용]
+        # 데이터프레임의 업체명과 선택된 업체명을 비교할 때 공백 제거
+        # df_sorted['매출업체']를 공백제거하여 임시 비교
+        
+        # boolean mask 생성
+        mask_vendor = df_sorted['매출업체'].astype(str).str.replace(' ', '') == str(sel_vendor).replace(' ', '')
+        vendor_df = df_sorted[mask_vendor]
 
         # (2) 품목: Multi Select (Cascading)
-        # 해당 업체의 품목 목록
-        v_items = vendor_items = vendor_df['품목'].unique().tolist()
+        v_items = vendor_df['품목'].unique().tolist()
         v_item_opts = ['전체 선택'] + v_items
         
         with hc2:
             sel_hist_items = st.multiselect("품목 (다중)", v_item_opts, default=[])
             
         if not sel_hist_items or '전체 선택' in sel_hist_items:
-            # 전체 선택 or 빈 값(하지만 빈값이면 표 안그림)
-            # 여기서는 필터링용 데이터셋만 정의
             hist_df_step1 = vendor_df
         else:
             hist_df_step1 = vendor_df[vendor_df['품목'].isin(sel_hist_items)]
@@ -501,19 +522,13 @@ def run_sales_system():
             hist_df_final = hist_df_step2[hist_df_step2[note_col].isin(sel_hist_notes)]
 
         # [표시 로직]
-        # 사용자 요구사항: "사용자가 직접 항목을 선택해야 표가 나타나게 해줘"
-        # 즉, 필터가 비어있으면 보여주지 않음. (전체 선택은 선택한 것으로 간주)
-        
         is_item_selected = bool(sel_hist_items)
         is_spec_selected = bool(sel_hist_specs)
         is_note_selected = bool(sel_hist_notes)
         
-        # 셋 다 비어있으면(False) 안내 메시지
         if not (is_item_selected or is_spec_selected or is_note_selected):
             st.info("👆 조회할 품목, 규격, 또는 비고를 선택해주세요.")
         else:
-            # 데이터 가공 및 피벗
-            # 히스토리 컬럼 추출
             history_cols = [c for c in df_sales.columns if '과거매출단가' in str(c)]
             
             if not history_cols:
@@ -521,22 +536,13 @@ def run_sales_system():
             elif hist_df_final.empty:
                 st.warning("조건에 맞는 데이터가 없습니다.")
             else:
-                # Melting or Constructing List
-                # 우리는 (Item, Spec, Note, Unit) 별로 (Date) 컬럼의 값을 보여줘야 함
-                # 원하는 형태: Index=[Item, Spec, Note, Unit], Cols=[Date], Val=[Price]
-                
-                # 먼저 필요한 컬럼만 추림: 식별자 + 히스토리컬럼
                 id_cols = ['품목', '규격', note_col, '단위']
                 target_df = hist_df_final[id_cols + history_cols].copy()
                 
-                # Melt to long format
                 melted = target_df.melt(id_vars=id_cols, value_vars=history_cols, var_name='raw_date', value_name='price')
                 
-                # 날짜 추출 및 변환
-                # 예: '과거매출단가_24/10/01' -> '24/10/01'
                 melted['date_str'] = melted['raw_date'].astype(str).str.replace('과거매출단가', '').str.replace('_', ' ').str.strip()
                 
-                # 빈 값 제거
                 melted = melted.dropna(subset=['price'])
                 melted = melted[melted['price'] != 0]
                 melted = melted[melted['price'] != ""]
@@ -544,11 +550,6 @@ def run_sales_system():
                 if melted.empty:
                     st.info("해당 조건의 과거 단가 기록이 없습니다.")
                 else:
-                    # Pivot
-                    # index 순서는 hist_df_final(이미 정렬됨)의 순서를 따르는게 좋음
-                    # 하지만 pivot_table은 인덱스를 정렬해버림.
-                    # 따라서 pivot 후 reindex 필요.
-                    
                     hist_pivot = melted.pivot_table(
                         index=id_cols,
                         columns='date_str',
@@ -556,8 +557,6 @@ def run_sales_system():
                         aggfunc='first'
                     )
                     
-                    # 날짜 컬럼 정렬 (오래된 순 -> 최신 순? 보통 최신이 오른쪽)
-                    # 문자열 날짜를 datetime으로 변환해 정렬
                     date_cols = hist_pivot.columns.tolist()
                     try:
                         sorted_dates = sorted(date_cols, key=lambda x: pd.to_datetime(x, format='%y/%m/%d', errors='ignore'))
@@ -566,17 +565,14 @@ def run_sales_system():
                         
                     hist_pivot = hist_pivot[sorted_dates]
                     
-                    # 행 정렬 (Natural Sort 유지)
-                    # hist_df_final에서 유니크 키 추출
                     row_order = hist_df_final[id_cols].drop_duplicates()
                     target_idx = pd.MultiIndex.from_frame(row_order)
                     final_idx = target_idx.intersection(hist_pivot.index)
-                    # 순서 유지
                     final_idx = target_idx[target_idx.isin(final_idx)]
                     
                     hist_pivot = hist_pivot.reindex(final_idx)
+                    hist_pivot.index.names = ['품목', '규격', note_col, '단위']
                     
-                    # 포맷팅
                     hist_pivot_display = hist_pivot.applymap(format_price_int)
                     
                     st.dataframe(hist_pivot_display, use_container_width=True)
