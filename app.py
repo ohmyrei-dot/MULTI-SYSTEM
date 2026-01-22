@@ -30,7 +30,7 @@ def natural_sort_key(s):
     return (num_val, keyword_rank, text)
 
 # -----------------------------------------------------------------------------
-# 2. 매입 견적 비교 시스템 (기존 로직 유지 - 규격 정렬 포함)
+# 2. 매입 견적 비교 시스템 (기존 로직 유지)
 # -----------------------------------------------------------------------------
 def run_purchase_estimate_system():
     # CSS: 제목 줄바꿈 설정
@@ -132,7 +132,7 @@ def run_purchase_estimate_system():
 
             selected_item = col_input1.selectbox("품목 선택", final_item_list, key="sel_item")
 
-            # 2) 규격 선택 (Natural Sort 적용 - 매입용)
+            # 2) 규격 선택 (Natural Sort 적용)
             available_specs = df_pivot[df_pivot[item_col] == selected_item]['통합규격'].unique().tolist()
             available_specs = sorted(available_specs, key=natural_sort_key)
             
@@ -285,7 +285,7 @@ def run_purchase_estimate_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (기존 로직 완벽 유지)
+# 3. 매출 단가 조회 시스템 (기존 로직 유지)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -545,33 +545,41 @@ def run_vendor_purchase_system():
         # 1. 데이터 로드 (매입 단가 시트 사용)
         df_purch = pd.read_excel(file_path, sheet_name='Purchase_매입단가')
         
-        # 컬럼 처리 (비고, 단위 등)
-        # 매입 시트에는 '비고'가 없거나 이름이 다를 수 있으니 확인
+        # 규격 컬럼 정규화 (규격1 -> 규격)
+        spec_col = '규격' if '규격' in df_purch.columns else '규격1'
+        if spec_col in df_purch.columns:
+            df_purch = df_purch.rename(columns={spec_col: '규격'})
+        else:
+            df_purch['규격'] = ""
+            
+        # 비고 컬럼 정규화
         note_col = '비고' if '비고' in df_purch.columns else '비고 1'
-        if note_col not in df_purch.columns: df_purch[note_col] = ""
+        if note_col in df_purch.columns:
+            # 일관성을 위해 '비고 1'로 통일 (표시용)
+            if note_col != '비고 1':
+                df_purch = df_purch.rename(columns={note_col: '비고 1'})
+            note_col = '비고 1'
+        else:
+            df_purch['비고 1'] = ""
+            note_col = '비고 1'
+            
         if '단위' not in df_purch.columns: df_purch['단위'] = ""
         
-        # 매입단가는 '현재매출단가' 같은 특정 값 컬럼이 없고, 업체명 컬럼에 바로 단가가 있음.
-        # 따라서, 고정 컬럼(품목, 규격 등)을 제외한 나머지를 업체 컬럼으로 간주해야 함.
-        fixed_cols = ['품목', '규격', note_col, '단위', '업체', '거래처'] # 예상되는 고정 컬럼들
-        # 실제 업체 컬럼 식별
+        # 결측치 처리
+        df_purch['규격'] = df_purch['규격'].fillna("")
+        df_purch[note_col] = df_purch[note_col].fillna("")
+        df_purch['단위'] = df_purch['단위'].fillna("")
+        # 숫자형(단가)는 0으로 채움
+        numeric_cols = df_purch.select_dtypes(include=['number']).columns
+        df_purch[numeric_cols] = df_purch[numeric_cols].fillna(0)
+
+        # 업체 컬럼 식별
         all_cols = df_purch.columns.tolist()
-        # 제외할 컬럼들
         exclude_cols = ['품목', '규격', note_col, '단위', 'rank_item', 'rank_note_type', 'rank_note_num', 'rank_spec_num']
         vendor_cols = [c for c in all_cols if c not in exclude_cols and not str(c).startswith('Unnamed')]
         
-        # 데이터가 Long Format인지 Wide Format인지 확인 필요.
-        # '매출단가'는 Long Format (행마다 업체 지정)이었으나, 
-        # '매입견적' 로직을 보면 Wide Format (업체가 컬럼)인 것으로 보임.
-        # Wide Format이라면 Melt해서 Long으로 만든 뒤 로직을 태우거나, 바로 Pivot 된 상태로 처리.
-        # 사용자 요구: "멀티셀렉트 업체 필터: 여러 매입처를 선택하면 가로로 나열되는 피벗 구조."
-        # 데이터가 이미 Wide라면 필터링만 하면 됨.
-        
-        # 데이터 정규화 (Long Format으로 변환하여 처리 통일)
-        # 이미 Wide Format이라면, Vendor Columns가 존재함.
-        
         # -----------------------------------------------------------
-        # 2. 정렬 로직 (Natural Sort) - 매출과 동일
+        # 2. 정렬 로직 (Natural Sort)
         # -----------------------------------------------------------
         priority_items = ['안전망1cm', '안전망2cm', 'pp로프', '와이어로프', '와이어클립', '멀티망', '럿셀망', '케이블타이']
         priority_map = {item: i for i, item in enumerate(priority_items)}
@@ -604,7 +612,6 @@ def run_vendor_purchase_system():
         # -----------------------------------------------------------
         st.subheader("🔍 데이터 필터")
         
-        # 업체 필터 (Wide Format이므로 컬럼 리스트가 업체 목록)
         all_vendors = sorted(vendor_cols)
         vendor_options = ['전체 선택'] + all_vendors
         
@@ -615,7 +622,6 @@ def run_vendor_purchase_system():
         else:
             target_vendors = selected_vendors_raw
 
-        # 품목/규격/비고 필터 (Cascade)
         fc1, fc2, fc3 = st.columns(3)
         
         all_items = df_sorted['품목'].unique().tolist()
@@ -636,15 +642,10 @@ def run_vendor_purchase_system():
         # -----------------------------------------------------------
         # 4. 표 구성 (단위당 단가 계산 고정)
         # -----------------------------------------------------------
-        # 필요한 컬럼만 추출 (고정정보 + 선택된 업체)
         display_cols = ['품목', note_col, '단위', '규격'] + target_vendors
-        # 규격은 계산용으로 필요하지만, '단위당 단가' 모드에서는 숨기고 Grouping함.
-        # 여기서는 "단위당 단가 고정"이므로 규격 제외하고 Grouping.
-        
         df_target = df_final[display_cols].copy()
         
-        # 0 또는 NaN 제거 (행 기준이 아니라, 값 기준으로 처리해야 함. Wide Format이므로)
-        # 하지만 "데이터가 있는 행만 표시" 로직 준수 -> 선택된 업체 중 하나라도 값이 있어야 함.
+        # 데이터 존재 행 필터링
         df_target_check = df_target[target_vendors].replace(0, pd.NA)
         df_target = df_target[df_target_check.notna().any(axis=1)]
 
@@ -669,7 +670,6 @@ def run_vendor_purchase_system():
                 
             if divisor == 0: divisor = 1.0
             
-            # 업체 컬럼들에 대해 나누기 적용
             for v in target_vendors:
                 val = row[v]
                 if pd.notnull(val) and isinstance(val, (int, float)):
@@ -678,23 +678,18 @@ def run_vendor_purchase_system():
 
         df_calc = df_target.apply(apply_unit_calc, axis=1)
         
-        # 표 통합 (규격 제거 후 Group by 품목, 비고, 단위)
-        # sort=False로 기존 Natural Sort 순서 최대한 유지
+        # 표 통합 (규격 제거 후 Group by)
         df_grouped = df_calc.drop(columns=['규격']).groupby(['품목', note_col, '단위'], sort=False)[target_vendors].first().reset_index()
-        
-        # 인덱스 설정
         df_grouped = df_grouped.set_index(['품목', note_col, '단위'])
 
         # -----------------------------------------------------------
-        # [핵심] 품목 기준 업체 열(Column) 정렬
+        # [핵심] 품목 기준 업체 열(Column) 정렬 (안전장치 추가)
         # -----------------------------------------------------------
         st.divider()
         
-        # 정렬 옵션 생성
         sort_opts = ["선택 안함"]
         row_map = {}
         for idx in df_grouped.index:
-            # idx: (품목, 비고, 단위)
             label = f"{idx[0]} ({idx[1]})"
             sort_opts.append(label)
             row_map[label] = idx
@@ -710,24 +705,19 @@ def run_vendor_purchase_system():
         if sort_std != "선택 안함" and sort_std in row_map:
             target_idx = row_map[sort_std]
             try:
-                # 해당 행 데이터 추출
+                # 해당 행 데이터 추출 (안전장치)
                 target_row = df_grouped.loc[target_idx]
                 if isinstance(target_row, pd.DataFrame): target_row = target_row.iloc[0]
                 
-                # 업체별 가격 추출 (시리즈)
                 prices = target_row[target_vendors]
                 
-                # 정렬 키 함수
                 def sort_key(v):
                     val = prices[v]
                     if pd.isna(val) or val == 0 or val == "":
-                        return float('inf') # 없는 값은 맨 뒤로
+                        return float('inf') 
                     return val
                 
                 is_reverse = "높은" in sort_order
-                # 정렬 수행
-                # 만약 높은 순이면, inf(없는값)는 어떻게? -> 보통 맨 뒤가 좋음.
-                # reverse=True면 inf가 맨 앞으로 옴. 이를 방지하려면 키를 조정해야 함.
                 if is_reverse:
                     final_vendors = sorted(target_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else -float('inf'))
                 else:
@@ -735,18 +725,21 @@ def run_vendor_purchase_system():
                     
                 st.toast(f"✅ '{sort_std}' 기준 정렬 완료")
             except Exception as e:
-                pass # 오류 시 기존 순서 유지
+                pass 
 
         # 최종 컬럼 순서 적용
         df_display = df_grouped[final_vendors]
         
-        # 포맷팅
         def fmt(x):
             if pd.isna(x) or x == 0 or x == "": return ""
             return f"{int(x):,}"
             
         st.subheader("📋 업체별 매입단가표 (단위당)")
-        st.dataframe(df_display.applymap(fmt), use_container_width=True)
+        
+        cols_cfg = {
+            note_col: st.column_config.TextColumn(note_col, width=None, help="비고 사항")
+        }
+        st.dataframe(df_display.applymap(fmt), use_container_width=True, column_config=cols_cfg)
 
     except Exception as e:
         st.error(f"오류 발생: {e}")
