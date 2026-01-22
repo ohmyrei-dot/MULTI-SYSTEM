@@ -258,7 +258,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (공백 무시 비교 로직 적용)
+# 3. 매출 단가 조회 시스템 (데이터 존재 행만 필터링 + 공백 무시 비교)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -309,11 +309,13 @@ def run_sales_system():
                 return float(match.group())
             return float('inf')
 
+        # 랭크 컬럼 생성
         df_sales['rank_item'] = df_sales['품목'].map(lambda x: priority_map.get(x, 999))
         df_sales['rank_note_type'] = df_sales[note_col].apply(get_note_type_rank)
         df_sales['rank_note_num'] = df_sales[note_col].apply(extract_number)
         df_sales['rank_spec_num'] = df_sales['규격'].apply(extract_number)
 
+        # 전체 데이터 정렬
         df_sorted = df_sales.sort_values(
             by=['rank_item', 'rank_note_type', 'rank_note_num', 'rank_spec_num'],
             ascending=[True, True, True, True]
@@ -324,14 +326,13 @@ def run_sales_system():
         # -----------------------------------------------------------
         st.subheader("🔍 데이터 필터")
         
-        # (1) 상단: 업체 선택 (가로 전체)
+        # (1) 상단: 업체 선택
         # 모든 공백을 제거한 업체명을 비교하기 위해 사용하지만, 
         # 리스트는 원본 데이터를 기반으로 생성 (중복 제거)
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
         vendor_options = ['전체 선택'] + all_vendors
         
         default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전']
-        # 기본값 선택 시에도 원본 데이터 목록에서 존재하는 것만
         default_vendor_selection = [v for v in default_targets if v in all_vendors]
 
         selected_vendors_raw = st.multiselect(
@@ -345,7 +346,7 @@ def run_sales_system():
         else:
             final_selected_vendors = selected_vendors_raw
 
-        # (2) 하단: 품목 / 규격 / 비고 (3분할) - 기본값 Empty
+        # (2) 하단: 품목 / 규격 / 비고 (3분할)
         fc1, fc2, fc3 = st.columns(3)
         
         # -- 품목 --
@@ -356,7 +357,7 @@ def run_sales_system():
             selected_items_raw = st.multiselect(
                 "📦 품목",
                 options=item_options,
-                default=[]  # 기본값 비움
+                default=[]
             )
         
         if not selected_items_raw or '전체 선택' in selected_items_raw:
@@ -372,7 +373,7 @@ def run_sales_system():
             selected_specs_raw = st.multiselect(
                 "📏 규격",
                 options=spec_options,
-                default=[]  # 기본값 비움
+                default=[]
             )
         
         if not selected_specs_raw or '전체 선택' in selected_specs_raw:
@@ -388,7 +389,7 @@ def run_sales_system():
             selected_notes_raw = st.multiselect(
                 "📝 비고",
                 options=note_options,
-                default=[]  # 기본값 비움
+                default=[]
             )
         
         if not selected_notes_raw or '전체 선택' in selected_notes_raw:
@@ -397,7 +398,7 @@ def run_sales_system():
             df_final = df_filtered_step2[df_filtered_step2[note_col].isin(selected_notes_raw)]
 
         # -----------------------------------------------------------
-        # 4. 피벗 테이블 및 가공
+        # 4. 피벗 테이블 및 데이터 존재 행 필터링
         # -----------------------------------------------------------
         unique_keys = df_final[['품목', '규격', note_col, '단위']].drop_duplicates()
         
@@ -409,6 +410,7 @@ def run_sales_system():
                 aggfunc='first'
             )
             
+            # 인덱스 순서 복구 (Natural Sort 적용된 순서)
             target_index = pd.MultiIndex.from_frame(unique_keys)
             final_index = target_index.intersection(df_pivot.index)
             final_index = target_index[target_index.isin(final_index)]
@@ -416,41 +418,43 @@ def run_sales_system():
             df_pivot = df_pivot.reindex(final_index)
             df_pivot.index.names = ['품목', '규격', note_col, '단위']
 
-            # [수정: 업체명 비교 로직 개선]
-            # 피벗 테이블의 컬럼(업체명)과 선택된 업체명을 비교할 때 공백을 제거하고 비교
+            # [업체명 공백 제거 비교 로직]
             pivot_columns = df_pivot.columns
             valid_columns = []
             
-            # 선택된 업체 리스트의 공백 제거 버전
             clean_selected_vendors = [str(v).replace(' ', '') for v in final_selected_vendors]
             
             for col in pivot_columns:
-                # 피벗 컬럼명의 공백 제거 버전이 선택 리스트에 있는지 확인
                 if str(col).replace(' ', '') in clean_selected_vendors:
                     valid_columns.append(col)
             
-            # 원본 피벗 테이블에서 유효한 컬럼만 선택 (가나다 정렬 등은 유지)
-            # 단, valid_columns 순서가 뒤섞일 수 있으므로 정렬 필요하면 추가 정렬
-            # 여기서는 pivot_columns 순서대로 append 했으므로 기존 순서 유지됨
-            
+            # 선택된 업체의 데이터만 추출
             df_display = df_pivot[valid_columns]
 
+            # [핵심 로직: 데이터 존재 행 필터링]
+            # 선택된 업체(valid_columns) 중 하나라도 값이 있는(0이 아닌) 행만 유지
+            # 1. 0을 NaN으로 치환
+            df_check = df_display.replace(0, pd.NA)
+            # 2. 모든 컬럼이 NaN인 행 제거
+            df_display = df_display[df_check.notna().any(axis=1)]
+
+            # 포맷팅 함수
             def format_price_int(val):
-                if pd.isna(val) or val == "":
+                if pd.isna(val) or val == "" or val == 0:
                     return ""
                 try:
                     return f"{int(val):,}"
                 except:
                     return str(val)
 
-            df_display = df_display.applymap(format_price_int)
+            df_display_formatted = df_display.applymap(format_price_int)
 
             st.divider()
             st.subheader("📋 업체별 현재 매출단가 비교")
-            st.caption(f"💡 기준 단가: {current_price_col} (소수점 제거됨)")
+            st.caption(f"💡 기준 단가: {current_price_col} (소수점 제거됨, 데이터 있는 행만 표시)")
             
             st.dataframe(
-                df_display,
+                df_display_formatted,
                 use_container_width=True,
                 column_config={
                     note_col: st.column_config.TextColumn(
@@ -466,22 +470,17 @@ def run_sales_system():
         st.divider()
 
         # -----------------------------------------------------------
-        # 6. 하단: 업체별 히스토리 (레이아웃 및 로직 변경)
+        # 6. 하단: 업체별 히스토리
         # -----------------------------------------------------------
         st.subheader("📜 업체별 단가 변동 히스토리")
         
-        # 4분할 레이아웃
         hc1, hc2, hc3, hc4 = st.columns(4)
         
         # (1) 업체: Single Select
         with hc1:
             sel_vendor = st.selectbox("업체 (단일 선택)", all_vendors)
             
-        # [수정: 업체명 비교 로직 개선 - 히스토리용]
-        # 데이터프레임의 업체명과 선택된 업체명을 비교할 때 공백 제거
-        # df_sorted['매출업체']를 공백제거하여 임시 비교
-        
-        # boolean mask 생성
+        # [히스토리용 업체명 공백 제거 비교]
         mask_vendor = df_sorted['매출업체'].astype(str).str.replace(' ', '') == str(sel_vendor).replace(' ', '')
         vendor_df = df_sorted[mask_vendor]
 
