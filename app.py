@@ -39,12 +39,14 @@ def run_purchase_system():
     # [Helper] 매입 견적용 Natural Sort Key 함수
     def purchase_sort_key(s):
         text = str(s).strip()
+        # 1. 숫자 추출
         match = re.search(r'(\d+(\.\d+)?)', text)
         if match:
             num_val = float(match.group(1))
         else:
             num_val = float('inf')
             
+        # 2. 키워드 우선순위
         if 'KS' in text:
             keyword_rank = 0
         elif '가공' in text:
@@ -286,7 +288,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (열 정렬 기능 추가)
+# 3. 매출 단가 조회 시스템 (기능 개선)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -318,9 +320,9 @@ def run_sales_system():
             return
 
         # -----------------------------------------------------------
-        # [모드 선택]
+        # [모드 선택] 기본값을 '단위당 단가'(index 1)로 설정
         # -----------------------------------------------------------
-        price_mode = st.radio("단가 표시 방식", ["기본 단가", "단위당 단가"], horizontal=True)
+        price_mode = st.radio("단가 표시 방식", ["기본 단가", "단위당 단가"], index=1, horizontal=True)
 
         # -----------------------------------------------------------
         # 2. 정렬 로직 (Natural Sort)
@@ -450,7 +452,7 @@ def run_sales_system():
             df_pivot = df_pivot.reindex(final_index)
             df_pivot.index.names = ['품목', '규격', note_col, '단위']
 
-            # 업체 필터링
+            # 업체 필터링 (공백 제거 매칭)
             pivot_columns = df_pivot.columns
             valid_columns = []
             clean_selected_vendors = [str(v).replace(' ', '') for v in final_selected_vendors]
@@ -499,7 +501,7 @@ def run_sales_system():
                 df_display = df_grouped
 
             # -----------------------------------------------------------
-            # [신규] 열 정렬 기준 품목 선택 및 동적 재배치
+            # [열 정렬 기준 품목 선택 및 동적 재배치]
             # -----------------------------------------------------------
             st.divider()
             
@@ -516,17 +518,13 @@ def run_sales_system():
                     if price_mode == "기본 단가":
                         spec = str(idx[1])
                         note = str(idx[2])
-                        label = f"{item} ({note})" # 요청대로 품목+비고1만 표시 (규격은 내부적으로 식별에 사용)
+                        label = f"{item} ({note})"
                     else:
                         note = str(idx[1])
                         label = f"{item} ({note})"
                 else:
                     label = str(idx)
                 
-                # 중복 방지를 위해 고유 ID 추가 등 처리가 필요할 수 있으나, 
-                # 여기서는 마지막 항목이 덮어쓰는 구조임. 
-                # UI상 구분을 위해 라벨에 규격을 추가하는 것이 좋으나 사용자 요청 준수.
-                # 다만, 식별을 위해 옵션 값에 규격 정보도 살짝 포함시킴.
                 if price_mode == "기본 단가":
                     label = f"{item} ({note}) - {idx[1]}"
                 
@@ -545,11 +543,9 @@ def run_sales_system():
                 target_idx = rows_map[selected_sort_option]
                 try:
                     target_row = df_display.loc[target_idx]
-                    # Series인지 DataFrame(중복)인지 확인
                     if isinstance(target_row, pd.DataFrame):
                         target_row = target_row.iloc[0]
                         
-                    # 정렬: 값 오름차순, NaN/0/빈값은 맨 뒤로
                     def get_sort_val(val):
                         if pd.isna(val) or val == "" or val == 0:
                             return float('inf')
