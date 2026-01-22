@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# 2. 매입 견적 비교 시스템 (숫자 정렬 적용)
+# 2. 매입 견적 비교 시스템 (엄격한 정렬 규칙 적용)
 # -----------------------------------------------------------------------------
 def run_purchase_system():
     # CSS: 제목 줄바꿈 설정
@@ -36,12 +36,29 @@ def run_purchase_system():
         st.info("깃허브 저장소의 최상위 경로에 '단가표.xlsx' 파일을 업로드해주세요.")
         return
 
-    # [Helper] 숫자 인식 정렬 함수 (Natural Sort Key)
-    def natural_sort_key(s):
-        # 문자열을 숫자와 문자로 분리하여 리스트로 반환 (예: "1.5m" -> ['', 1.5, 'm'])
-        # 이를 통해 숫자는 숫자끼리 크기 비교가 가능해짐
-        return [float(text) if text.replace('.', '', 1).isdigit() else text.lower()
-                for text in re.split(r'(\d+(?:\.\d+)?)', str(s)) if text]
+    # [Helper] 매입 견적용 엄격한 정렬 함수 (숫자 -> KS -> 가공 순)
+    def purchase_sort_key(s):
+        text = str(s)
+        
+        # 1. 숫자 추출 (규격 크기 비교용)
+        # 문자열 내 첫 번째 숫자(실수 포함)를 추출. 없으면 무한대(맨 뒤로)
+        match = re.search(r'(\d+(\.\d+)?)', text)
+        if match:
+            num_val = float(match.group(1))
+        else:
+            num_val = float('inf')
+            
+        # 2. 키워드 우선순위 (KS > 일반 > 가공)
+        # 값이 작을수록 먼저 표시됨
+        if 'KS' in text:
+            keyword_rank = 0  # 1순위
+        elif '가공' in text:
+            keyword_rank = 2  # 3순위 (맨 뒤)
+        else:
+            keyword_rank = 1  # 2순위 (일반)
+            
+        # 정렬 키 반환: (숫자 크기 오름차순, 키워드 순위, 원본 텍스트)
+        return (num_val, keyword_rank, text)
 
     try:
         # [데이터 로드] 매입 견적 시트
@@ -99,7 +116,7 @@ def run_purchase_system():
         with st.container():
             col_input1, col_input2, col_input3, col_btn = st.columns([2, 2, 1, 1])
 
-            # 1) 품목 선택 (Natural Sort 적용)
+            # 1) 품목 선택 (정렬 로직 적용)
             raw_items = df_pivot[item_col].unique().tolist()
             priority_keywords = ['안전망', 'PP로프', '와이어로프', '와이어클립', '멀티망', '럿셀망', '케이블타이', 'PE로프']
             
@@ -107,27 +124,27 @@ def run_purchase_system():
             used_items = set()
 
             for kw in priority_keywords:
-                # 우선순위 내에서도 숫자 인식 정렬 적용
+                # 해당 키워드가 포함된 품목들을 찾아 정렬 규칙 적용 (숫자 크기 -> 키워드 우선순위)
                 matches = sorted(
                     [x for x in raw_items if kw in str(x) and x not in used_items],
-                    key=natural_sort_key
+                    key=purchase_sort_key
                 )
                 sorted_items.extend(matches)
                 used_items.update(matches)
             
-            # 나머지 항목들도 숫자 인식 정렬
+            # 나머지 항목들도 동일한 정렬 규칙 적용
             others = sorted(
                 [x for x in raw_items if x not in used_items],
-                key=natural_sort_key
+                key=purchase_sort_key
             )
             final_item_list = sorted_items + others
 
             selected_item = col_input1.selectbox("품목 선택", final_item_list, key="sel_item")
 
-            # 2) 규격 선택 (Natural Sort 적용 - 핵심 수정 사항)
+            # 2) 규격 선택 (정렬 로직 적용)
             available_specs = df_pivot[df_pivot[item_col] == selected_item]['통합규격'].unique().tolist()
-            # 규격을 문자열로 변환 후 숫자 인식 정렬
-            available_specs = sorted(available_specs, key=natural_sort_key)
+            # 규격 리스트에 대해 엄격한 정렬(숫자 크기 -> KS -> 가공) 적용
+            available_specs = sorted(available_specs, key=purchase_sort_key)
             
             selected_spec = col_input2.selectbox("규격 선택", available_specs, key="sel_spec")
 
