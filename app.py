@@ -36,29 +36,26 @@ def run_purchase_system():
         st.info("깃허브 저장소의 최상위 경로에 '단가표.xlsx' 파일을 업로드해주세요.")
         return
 
-    # [Helper] 매입 견적용 Natural Sort Key 함수 (핵심 로직)
+    # [Helper] 매입 견적용 Natural Sort Key 함수
     # 정렬 우선순위: 1.숫자 크기(오름차순) -> 2.키워드(KS>일반>가공) -> 3.원본텍스트
     def purchase_sort_key(s):
         text = str(s).strip()
         
-        # 1. 숫자 추출 (가장 중요: 6mm < 10mm 정렬용)
-        # 텍스트 내에서 첫 번째로 발견되는 실수(소수점 포함)를 추출
+        # 1. 숫자 추출
         match = re.search(r'(\d+(\.\d+)?)', text)
         if match:
             num_val = float(match.group(1))
         else:
-            # 숫자가 없으면(예: '비규격') 맨 뒤로 보냄 (inf)
             num_val = float('inf')
             
-        # 2. 키워드 우선순위 (KS > 일반 > 가공)
+        # 2. 키워드 우선순위
         if 'KS' in text:
-            keyword_rank = 0  # 1순위
+            keyword_rank = 0
         elif '가공' in text:
-            keyword_rank = 2  # 3순위 (후순위)
+            keyword_rank = 2
         else:
-            keyword_rank = 1  # 2순위 (일반)
+            keyword_rank = 1
             
-        # 정렬 기준 튜플 반환
         return (num_val, keyword_rank, text)
 
     try:
@@ -125,7 +122,6 @@ def run_purchase_system():
             used_items = set()
 
             for kw in priority_keywords:
-                # 키워드 그룹 내에서도 숫자 크기순 정렬 적용
                 matches = sorted(
                     [x for x in raw_items if kw in str(x) and x not in used_items],
                     key=purchase_sort_key
@@ -133,7 +129,6 @@ def run_purchase_system():
                 sorted_items.extend(matches)
                 used_items.update(matches)
             
-            # 나머지 항목들도 숫자 크기순 정렬
             others = sorted(
                 [x for x in raw_items if x not in used_items],
                 key=purchase_sort_key
@@ -142,8 +137,7 @@ def run_purchase_system():
 
             selected_item = col_input1.selectbox("품목 선택", final_item_list, key="sel_item")
 
-            # 2) 규격 선택 (Natural Sort 적용 - 핵심 수정)
-            # 문자열로 정렬 시 10, 12, 6, 8 순서로 나오는 문제를 해결하기 위해 purchase_sort_key 사용
+            # 2) 규격 선택 (Natural Sort 적용 - 매입용)
             available_specs = df_pivot[df_pivot[item_col] == selected_item]['통합규격'].unique().tolist()
             available_specs = sorted(available_specs, key=purchase_sort_key)
             
@@ -296,7 +290,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (단위당 단가 계산 & 기존 로직 유지)
+# 3. 매출 단가 조회 시스템 (조건부 단위당 계산 + 표 통합)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -328,7 +322,7 @@ def run_sales_system():
             return
 
         # -----------------------------------------------------------
-        # [신규] 단가 표시 방식 선택 (기본/단위당)
+        # [모드 선택]
         # -----------------------------------------------------------
         price_mode = st.radio("단가 표시 방식", ["기본 단가", "단위당 단가"], horizontal=True)
 
@@ -373,7 +367,7 @@ def run_sales_system():
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
         vendor_options = ['전체 선택'] + all_vendors
         
-        # 기본 선택 업체 리스트에 '토우코리아' 추가
+        # 기본 선택 (토우코리아 포함)
         default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전', '토우코리아']
         default_vendor_selection = [v for v in default_targets if v in all_vendors]
 
@@ -452,7 +446,7 @@ def run_sales_system():
                 aggfunc='first'
             )
             
-            # 인덱스 순서 복구 (Natural Sort 적용된 순서)
+            # 인덱스 순서 복구
             target_index = pd.MultiIndex.from_frame(unique_keys)
             final_index = target_index.intersection(df_pivot.index)
             final_index = target_index[target_index.isin(final_index)]
@@ -463,22 +457,20 @@ def run_sales_system():
             # [업체명 공백 제거 비교 로직 유지]
             pivot_columns = df_pivot.columns
             valid_columns = []
-            
             clean_selected_vendors = [str(v).replace(' ', '') for v in final_selected_vendors]
             
             for col in pivot_columns:
                 if str(col).replace(' ', '') in clean_selected_vendors:
                     valid_columns.append(col)
             
-            # 선택된 업체의 데이터만 추출
             df_display = df_pivot[valid_columns]
 
-            # [핵심 로직 유지: 데이터 존재 행 필터링]
+            # [핵심 로직: 데이터 존재 행 필터링]
             df_check = df_display.replace(0, pd.NA)
             df_display = df_display[df_check.notna().any(axis=1)]
 
             # -----------------------------------------------------------
-            # [신규] 단위당 단가 계산 로직 적용 (4개 품목 한정)
+            # [조건부 계산] 단위당 단가 계산 (4개 품목 한정, Grouping)
             # -----------------------------------------------------------
             if price_mode == "단위당 단가":
                 def apply_unit_price_calculation(row):
@@ -490,11 +482,13 @@ def run_sales_system():
                     
                     # 1. 안전망, 멀티망: 규격 숫자 모두 곱하기
                     if any(x in item_name for x in ['안전망', '멀티망']):
+                        # "2m*50" -> [2, 50]
                         nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]
                         if nums:
-                            divisor = 1.0
+                            temp_div = 1.0
                             for n in nums:
-                                divisor *= n
+                                temp_div *= n
+                            divisor = temp_div
                     
                     # 2. 와이어로프: * 뒤의 숫자
                     elif '와이어로프' in item_name:
@@ -502,20 +496,33 @@ def run_sales_system():
                         if match:
                             divisor = float(match.group(1))
                             
-                    # 3. 와이어클립: 규격 숫자
+                    # 3. 와이어클립: 숫자 (pcs 앞 등)
                     elif '와이어클립' in item_name:
+                        # 200pcs -> 200
                         match = re.search(r'(\d+(?:\.\d+)?)', spec)
                         if match:
                             divisor = float(match.group(1))
-                            
-                    # 그 외 품목은 divisor = 1.0 (계산 안 함)
                     
                     if divisor == 0: divisor = 1.0
                     
-                    # 행의 모든 값(단가)에 나누기 적용
+                    # 계산 적용
                     return row.apply(lambda x: x / divisor if pd.notnull(x) and isinstance(x, (int, float)) else x)
 
-                df_display = df_display.apply(apply_unit_price_calculation, axis=1)
+                # 1. 계산 적용
+                df_calc = df_display.apply(apply_unit_price_calculation, axis=1)
+                
+                # 2. 표 통합 (규격 제거 후 Group by)
+                # 현재 인덱스: ['품목', '규격', note_col, '단위']
+                # 리셋 후 규격 제거
+                df_reset = df_calc.reset_index()
+                df_reset = df_reset.drop(columns=['규격'])
+                
+                # 그룹화: 품목, 비고, 단위가 같으면 합침 (첫번째 값 사용)
+                # Natural Sort 순서가 깨질 수 있으므로, 재정렬 필요할 수 있음.
+                # 하지만 Groupby는 정렬을 수행함. 기존 순서를 유지하려면 sort=False
+                df_grouped = df_reset.groupby(['품목', note_col, '단위'], sort=False).first()
+                
+                df_display = df_grouped
 
             # 포맷팅 함수
             def format_price_int(val):
@@ -532,16 +539,15 @@ def run_sales_system():
             st.subheader("📋 업체별 현재 매출단가 비교")
             st.caption(f"💡 기준: {price_mode} (소수점 제거됨)")
             
+            # 단위당 단가 모드일 때 규격 컬럼이 사라졌으므로 설정 조정
+            cols_cfg = {
+                note_col: st.column_config.TextColumn(note_col, width=None, help="비고 사항")
+            }
+            
             st.dataframe(
                 df_display_formatted,
                 use_container_width=True,
-                column_config={
-                    note_col: st.column_config.TextColumn(
-                        note_col,
-                        width=None, # Auto-fit
-                        help="비고 사항"
-                    )
-                }
+                column_config=cols_cfg
             )
         else:
             st.info("조건에 맞는 데이터가 없습니다.")
@@ -555,7 +561,7 @@ def run_sales_system():
         
         hc1, hc2, hc3, hc4 = st.columns(4)
         
-        # (1) 업체: Single Select
+        # (1) 업체
         with hc1:
             sel_vendor = st.selectbox("업체 (단일 선택)", all_vendors)
             
@@ -563,7 +569,7 @@ def run_sales_system():
         mask_vendor = df_sorted['매출업체'].astype(str).str.replace(' ', '') == str(sel_vendor).replace(' ', '')
         vendor_df = df_sorted[mask_vendor]
 
-        # (2) 품목: Multi Select (Cascading)
+        # (2) 품목
         v_items = vendor_df['품목'].unique().tolist()
         v_item_opts = ['전체 선택'] + v_items
         
@@ -575,7 +581,7 @@ def run_sales_system():
         else:
             hist_df_step1 = vendor_df[vendor_df['품목'].isin(sel_hist_items)]
 
-        # (3) 규격: Multi Select
+        # (3) 규격
         v_specs = hist_df_step1['규격'].unique().tolist()
         v_spec_opts = ['전체 선택'] + v_specs
         
@@ -587,7 +593,7 @@ def run_sales_system():
         else:
             hist_df_step2 = hist_df_step1[hist_df_step1['규격'].isin(sel_hist_specs)]
 
-        # (4) 비고: Multi Select
+        # (4) 비고
         v_notes = hist_df_step2[note_col].unique().tolist()
         v_note_opts = ['전체 선택'] + v_notes
         
