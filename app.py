@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# 2. 매입 견적 비교 시스템 (기존 로직 유지)
+# 2. 매입 견적 비교 시스템 (숫자 정렬 적용)
 # -----------------------------------------------------------------------------
 def run_purchase_system():
     # CSS: 제목 줄바꿈 설정
@@ -35,6 +35,13 @@ def run_purchase_system():
         st.error(f"🚨 '{file_path}' 파일을 찾을 수 없습니다.")
         st.info("깃허브 저장소의 최상위 경로에 '단가표.xlsx' 파일을 업로드해주세요.")
         return
+
+    # [Helper] 숫자 인식 정렬 함수 (Natural Sort Key)
+    def natural_sort_key(s):
+        # 문자열을 숫자와 문자로 분리하여 리스트로 반환 (예: "1.5m" -> ['', 1.5, 'm'])
+        # 이를 통해 숫자는 숫자끼리 크기 비교가 가능해짐
+        return [float(text) if text.replace('.', '', 1).isdigit() else text.lower()
+                for text in re.split(r'(\d+(?:\.\d+)?)', str(s)) if text]
 
     try:
         # [데이터 로드] 매입 견적 시트
@@ -92,6 +99,7 @@ def run_purchase_system():
         with st.container():
             col_input1, col_input2, col_input3, col_btn = st.columns([2, 2, 1, 1])
 
+            # 1) 품목 선택 (Natural Sort 적용)
             raw_items = df_pivot[item_col].unique().tolist()
             priority_keywords = ['안전망', 'PP로프', '와이어로프', '와이어클립', '멀티망', '럿셀망', '케이블타이', 'PE로프']
             
@@ -99,16 +107,28 @@ def run_purchase_system():
             used_items = set()
 
             for kw in priority_keywords:
-                matches = sorted([x for x in raw_items if kw in str(x) and x not in used_items])
+                # 우선순위 내에서도 숫자 인식 정렬 적용
+                matches = sorted(
+                    [x for x in raw_items if kw in str(x) and x not in used_items],
+                    key=natural_sort_key
+                )
                 sorted_items.extend(matches)
                 used_items.update(matches)
             
-            others = sorted([x for x in raw_items if x not in used_items])
+            # 나머지 항목들도 숫자 인식 정렬
+            others = sorted(
+                [x for x in raw_items if x not in used_items],
+                key=natural_sort_key
+            )
             final_item_list = sorted_items + others
 
             selected_item = col_input1.selectbox("품목 선택", final_item_list, key="sel_item")
 
+            # 2) 규격 선택 (Natural Sort 적용 - 핵심 수정 사항)
             available_specs = df_pivot[df_pivot[item_col] == selected_item]['통합규격'].unique().tolist()
+            # 규격을 문자열로 변환 후 숫자 인식 정렬
+            available_specs = sorted(available_specs, key=natural_sort_key)
+            
             selected_spec = col_input2.selectbox("규격 선택", available_specs, key="sel_spec")
 
             input_qty = col_input3.number_input("수량", min_value=1, value=1, step=1, key="in_qty")
@@ -258,7 +278,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (데이터 존재 행만 필터링 + 공백 무시 비교)
+# 3. 매출 단가 조회 시스템 (데이터 존재 행만 필터링 + 공백 무시 비교 유지)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
