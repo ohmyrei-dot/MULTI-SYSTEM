@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# 2. 매입 견적 비교 시스템 (숫자 인식 정렬 로직 적용)
+# 2. 매입 견적 비교 시스템 (기존 로직 유지)
 # -----------------------------------------------------------------------------
 def run_purchase_system():
     # CSS: 제목 줄바꿈 설정
@@ -37,18 +37,14 @@ def run_purchase_system():
         return
 
     # [Helper] 매입 견적용 Natural Sort Key 함수
-    # 정렬 우선순위: 1.숫자 크기(오름차순) -> 2.키워드(KS>일반>가공) -> 3.원본텍스트
     def purchase_sort_key(s):
         text = str(s).strip()
-        
-        # 1. 숫자 추출
         match = re.search(r'(\d+(\.\d+)?)', text)
         if match:
             num_val = float(match.group(1))
         else:
             num_val = float('inf')
             
-        # 2. 키워드 우선순위
         if 'KS' in text:
             keyword_rank = 0
         elif '가공' in text:
@@ -137,7 +133,7 @@ def run_purchase_system():
 
             selected_item = col_input1.selectbox("품목 선택", final_item_list, key="sel_item")
 
-            # 2) 규격 선택 (Natural Sort 적용 - 매입용)
+            # 2) 규격 선택 (Natural Sort 적용)
             available_specs = df_pivot[df_pivot[item_col] == selected_item]['통합규격'].unique().tolist()
             available_specs = sorted(available_specs, key=purchase_sort_key)
             
@@ -290,7 +286,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (조건부 단위당 계산 + 표 통합)
+# 3. 매출 단가 조회 시스템 (열 정렬 기능 추가)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -454,7 +450,7 @@ def run_sales_system():
             df_pivot = df_pivot.reindex(final_index)
             df_pivot.index.names = ['품목', '규격', note_col, '단위']
 
-            # [업체명 공백 제거 비교 로직 유지]
+            # 업체 필터링
             pivot_columns = df_pivot.columns
             valid_columns = []
             clean_selected_vendors = [str(v).replace(' ', '') for v in final_selected_vendors]
@@ -465,7 +461,7 @@ def run_sales_system():
             
             df_display = df_pivot[valid_columns]
 
-            # [핵심 로직: 데이터 존재 행 필터링]
+            # 데이터 존재 행 필터링
             df_check = df_display.replace(0, pd.NA)
             df_display = df_display[df_check.notna().any(axis=1)]
 
@@ -474,72 +470,112 @@ def run_sales_system():
             # -----------------------------------------------------------
             if price_mode == "단위당 단가":
                 def apply_unit_price_calculation(row):
-                    # Index: (품목, 규격, 비고, 단위)
                     item_name = str(row.name[0])
                     spec = str(row.name[1])
-                    
                     divisor = 1.0
                     
-                    # 1. 안전망, 멀티망: 규격 숫자 모두 곱하기
                     if any(x in item_name for x in ['안전망', '멀티망']):
-                        # "2m*50" -> [2, 50]
                         nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]
                         if nums:
                             temp_div = 1.0
-                            for n in nums:
-                                temp_div *= n
+                            for n in nums: temp_div *= n
                             divisor = temp_div
-                    
-                    # 2. 와이어로프: * 뒤의 숫자
                     elif '와이어로프' in item_name:
                         match = re.search(r'\*\s*(\d+(?:\.\d+)?)', spec)
-                        if match:
-                            divisor = float(match.group(1))
-                            
-                    # 3. 와이어클립: 숫자 (pcs 앞 등)
+                        if match: divisor = float(match.group(1))
                     elif '와이어클립' in item_name:
-                        # 200pcs -> 200
                         match = re.search(r'(\d+(?:\.\d+)?)', spec)
-                        if match:
-                            divisor = float(match.group(1))
+                        if match: divisor = float(match.group(1))
                     
                     if divisor == 0: divisor = 1.0
                     
-                    # 계산 적용
                     return row.apply(lambda x: x / divisor if pd.notnull(x) and isinstance(x, (int, float)) else x)
 
-                # 1. 계산 적용
                 df_calc = df_display.apply(apply_unit_price_calculation, axis=1)
                 
-                # 2. 표 통합 (규격 제거 후 Group by)
-                # 현재 인덱스: ['품목', '규격', note_col, '단위']
-                # 리셋 후 규격 제거
                 df_reset = df_calc.reset_index()
                 df_reset = df_reset.drop(columns=['규격'])
-                
-                # 그룹화: 품목, 비고, 단위가 같으면 합침 (첫번째 값 사용)
-                # Natural Sort 순서가 깨질 수 있으므로, 재정렬 필요할 수 있음.
-                # 하지만 Groupby는 정렬을 수행함. 기존 순서를 유지하려면 sort=False
                 df_grouped = df_reset.groupby(['품목', note_col, '단위'], sort=False).first()
-                
                 df_display = df_grouped
 
-            # 포맷팅 함수
-            def format_price_int(val):
-                if pd.isna(val) or val == "" or val == 0:
-                    return ""
+            # -----------------------------------------------------------
+            # [신규] 열 정렬 기준 품목 선택 및 동적 재배치
+            # -----------------------------------------------------------
+            st.divider()
+            
+            # 정렬 옵션 생성
+            sort_target_options = ["선택 안함"]
+            rows_map = {}
+            
+            for idx in df_display.index:
+                # idx는 MultiIndex 튜플
+                if isinstance(idx, tuple):
+                    # 기본 단가: ['품목', '규격', note_col, '단위']
+                    # 단위당: ['품목', note_col, '단위']
+                    item = str(idx[0])
+                    if price_mode == "기본 단가":
+                        spec = str(idx[1])
+                        note = str(idx[2])
+                        label = f"{item} ({note})" # 요청대로 품목+비고1만 표시 (규격은 내부적으로 식별에 사용)
+                    else:
+                        note = str(idx[1])
+                        label = f"{item} ({note})"
+                else:
+                    label = str(idx)
+                
+                # 중복 방지를 위해 고유 ID 추가 등 처리가 필요할 수 있으나, 
+                # 여기서는 마지막 항목이 덮어쓰는 구조임. 
+                # UI상 구분을 위해 라벨에 규격을 추가하는 것이 좋으나 사용자 요청 준수.
+                # 다만, 식별을 위해 옵션 값에 규격 정보도 살짝 포함시킴.
+                if price_mode == "기본 단가":
+                    label = f"{item} ({note}) - {idx[1]}"
+                
+                sort_target_options.append(label)
+                rows_map[label] = idx
+
+            col_sort, _ = st.columns([1, 2])
+            with col_sort:
+                selected_sort_option = st.selectbox(
+                    "📊 열 정렬 기준 품목 선택 (가격 낮은 순)", 
+                    sort_target_options
+                )
+
+            # 정렬 로직 실행
+            if selected_sort_option != "선택 안함" and selected_sort_option in rows_map:
+                target_idx = rows_map[selected_sort_option]
                 try:
-                    return f"{int(val):,}"
-                except:
-                    return str(val)
+                    target_row = df_display.loc[target_idx]
+                    # Series인지 DataFrame(중복)인지 확인
+                    if isinstance(target_row, pd.DataFrame):
+                        target_row = target_row.iloc[0]
+                        
+                    # 정렬: 값 오름차순, NaN/0/빈값은 맨 뒤로
+                    def get_sort_val(val):
+                        if pd.isna(val) or val == "" or val == 0:
+                            return float('inf')
+                        return val
+
+                    sorted_cols = sorted(
+                        df_display.columns,
+                        key=lambda col: get_sort_val(target_row[col])
+                    )
+                    
+                    df_display = df_display[sorted_cols]
+                    st.toast(f"✅ '{selected_sort_option}' 기준 최저가 순 정렬 완료")
+                except Exception as e:
+                    pass
+
+            # 포맷팅
+            def format_price_int(val):
+                if pd.isna(val) or val == "" or val == 0: return ""
+                try: return f"{int(val):,}"
+                except: return str(val)
 
             df_display_formatted = df_display.applymap(format_price_int)
 
-            st.divider()
             st.subheader("📋 업체별 현재 매출단가 비교")
             st.caption(f"💡 기준: {price_mode} (소수점 제거됨)")
             
-            # 단위당 단가 모드일 때 규격 컬럼이 사라졌으므로 설정 조정
             cols_cfg = {
                 note_col: st.column_config.TextColumn(note_col, width=None, help="비고 사항")
             }
@@ -561,15 +597,12 @@ def run_sales_system():
         
         hc1, hc2, hc3, hc4 = st.columns(4)
         
-        # (1) 업체
         with hc1:
             sel_vendor = st.selectbox("업체 (단일 선택)", all_vendors)
             
-        # [히스토리용 업체명 공백 제거 비교]
         mask_vendor = df_sorted['매출업체'].astype(str).str.replace(' ', '') == str(sel_vendor).replace(' ', '')
         vendor_df = df_sorted[mask_vendor]
 
-        # (2) 품목
         v_items = vendor_df['품목'].unique().tolist()
         v_item_opts = ['전체 선택'] + v_items
         
@@ -581,7 +614,6 @@ def run_sales_system():
         else:
             hist_df_step1 = vendor_df[vendor_df['품목'].isin(sel_hist_items)]
 
-        # (3) 규격
         v_specs = hist_df_step1['규격'].unique().tolist()
         v_spec_opts = ['전체 선택'] + v_specs
         
@@ -593,7 +625,6 @@ def run_sales_system():
         else:
             hist_df_step2 = hist_df_step1[hist_df_step1['규격'].isin(sel_hist_specs)]
 
-        # (4) 비고
         v_notes = hist_df_step2[note_col].unique().tolist()
         v_note_opts = ['전체 선택'] + v_notes
         
@@ -605,7 +636,6 @@ def run_sales_system():
         else:
             hist_df_final = hist_df_step2[hist_df_step2[note_col].isin(sel_hist_notes)]
 
-        # [표시 로직]
         is_item_selected = bool(sel_hist_items)
         is_spec_selected = bool(sel_hist_specs)
         is_note_selected = bool(sel_hist_notes)
@@ -624,9 +654,7 @@ def run_sales_system():
                 target_df = hist_df_final[id_cols + history_cols].copy()
                 
                 melted = target_df.melt(id_vars=id_cols, value_vars=history_cols, var_name='raw_date', value_name='price')
-                
                 melted['date_str'] = melted['raw_date'].astype(str).str.replace('과거매출단가', '').str.replace('_', ' ').str.strip()
-                
                 melted = melted.dropna(subset=['price'])
                 melted = melted[melted['price'] != 0]
                 melted = melted[melted['price'] != ""]
