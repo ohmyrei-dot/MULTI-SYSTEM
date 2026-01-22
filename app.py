@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# 2. 매입 견적 비교 시스템 (숫자 인식 정렬 로직 강화)
+# 2. 매입 견적 비교 시스템 (숫자 인식 정렬 로직 적용)
 # -----------------------------------------------------------------------------
 def run_purchase_system():
     # CSS: 제목 줄바꿈 설정
@@ -296,7 +296,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (기존 로직 완벽 유지)
+# 3. 매출 단가 조회 시스템 (기존 로직 완벽 유지 + 기본 업체 추가)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -365,12 +365,11 @@ def run_sales_system():
         st.subheader("🔍 데이터 필터")
         
         # (1) 상단: 업체 선택
-        # 모든 공백을 제거한 업체명을 비교하기 위해 사용하지만, 
-        # 리스트는 원본 데이터를 기반으로 생성 (중복 제거)
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
         vendor_options = ['전체 선택'] + all_vendors
         
-        default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전']
+        # 기본 선택 업체 리스트에 '토우코리아' 추가 (기존 목록 + 토우코리아)
+        default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전', '토우코리아']
         default_vendor_selection = [v for v in default_targets if v in all_vendors]
 
         selected_vendors_raw = st.multiselect(
@@ -456,7 +455,7 @@ def run_sales_system():
             df_pivot = df_pivot.reindex(final_index)
             df_pivot.index.names = ['품목', '규격', note_col, '단위']
 
-            # [업체명 공백 제거 비교 로직]
+            # [업체명 공백 제거 비교 로직 유지]
             pivot_columns = df_pivot.columns
             valid_columns = []
             
@@ -469,7 +468,7 @@ def run_sales_system():
             # 선택된 업체의 데이터만 추출
             df_display = df_pivot[valid_columns]
 
-            # [핵심 로직: 데이터 존재 행 필터링]
+            # [핵심 로직 유지: 데이터 존재 행 필터링]
             # 선택된 업체(valid_columns) 중 하나라도 값이 있는(0이 아닌) 행만 유지
             # 1. 0을 NaN으로 치환
             df_check = df_display.replace(0, pd.NA)
