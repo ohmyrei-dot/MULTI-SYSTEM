@@ -296,7 +296,7 @@ def run_purchase_system():
 
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (기존 로직 완벽 유지 + 기본 업체 추가)
+# 3. 매출 단가 조회 시스템 (단위당 단가 계산 & 기존 로직 유지)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -326,6 +326,11 @@ def run_sales_system():
         if not current_price_col:
             st.error("엑셀 파일에 '현재매출단가'가 포함된 열을 찾을 수 없습니다.")
             return
+
+        # -----------------------------------------------------------
+        # [신규] 단가 표시 방식 선택 (기본/단위당)
+        # -----------------------------------------------------------
+        price_mode = st.radio("단가 표시 방식", ["기본 단가", "단위당 단가"], horizontal=True)
 
         # -----------------------------------------------------------
         # 2. 정렬 로직 (Natural Sort)
@@ -368,7 +373,7 @@ def run_sales_system():
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
         vendor_options = ['전체 선택'] + all_vendors
         
-        # 기본 선택 업체 리스트에 '토우코리아' 추가 (기존 목록 + 토우코리아)
+        # 기본 선택 업체 리스트에 '토우코리아' 추가
         default_targets = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전', '토우코리아']
         default_vendor_selection = [v for v in default_targets if v in all_vendors]
 
@@ -469,11 +474,48 @@ def run_sales_system():
             df_display = df_pivot[valid_columns]
 
             # [핵심 로직 유지: 데이터 존재 행 필터링]
-            # 선택된 업체(valid_columns) 중 하나라도 값이 있는(0이 아닌) 행만 유지
-            # 1. 0을 NaN으로 치환
             df_check = df_display.replace(0, pd.NA)
-            # 2. 모든 컬럼이 NaN인 행 제거
             df_display = df_display[df_check.notna().any(axis=1)]
+
+            # -----------------------------------------------------------
+            # [신규] 단위당 단가 계산 로직 적용 (4개 품목 한정)
+            # -----------------------------------------------------------
+            if price_mode == "단위당 단가":
+                def apply_unit_price_calculation(row):
+                    # Index: (품목, 규격, 비고, 단위)
+                    item_name = str(row.name[0])
+                    spec = str(row.name[1])
+                    
+                    divisor = 1.0
+                    
+                    # 1. 안전망, 멀티망: 규격 숫자 모두 곱하기
+                    if any(x in item_name for x in ['안전망', '멀티망']):
+                        nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]
+                        if nums:
+                            divisor = 1.0
+                            for n in nums:
+                                divisor *= n
+                    
+                    # 2. 와이어로프: * 뒤의 숫자
+                    elif '와이어로프' in item_name:
+                        match = re.search(r'\*\s*(\d+(?:\.\d+)?)', spec)
+                        if match:
+                            divisor = float(match.group(1))
+                            
+                    # 3. 와이어클립: 규격 숫자
+                    elif '와이어클립' in item_name:
+                        match = re.search(r'(\d+(?:\.\d+)?)', spec)
+                        if match:
+                            divisor = float(match.group(1))
+                            
+                    # 그 외 품목은 divisor = 1.0 (계산 안 함)
+                    
+                    if divisor == 0: divisor = 1.0
+                    
+                    # 행의 모든 값(단가)에 나누기 적용
+                    return row.apply(lambda x: x / divisor if pd.notnull(x) and isinstance(x, (int, float)) else x)
+
+                df_display = df_display.apply(apply_unit_price_calculation, axis=1)
 
             # 포맷팅 함수
             def format_price_int(val):
@@ -488,7 +530,7 @@ def run_sales_system():
 
             st.divider()
             st.subheader("📋 업체별 현재 매출단가 비교")
-            st.caption(f"💡 기준 단가: {current_price_col} (소수점 제거됨, 데이터 있는 행만 표시)")
+            st.caption(f"💡 기준: {price_mode} (소수점 제거됨)")
             
             st.dataframe(
                 df_display_formatted,
