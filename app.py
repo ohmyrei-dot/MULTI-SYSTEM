@@ -534,7 +534,7 @@ def run_sales_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (품목 대그룹 정렬 업데이트)
+# 4. [신규] 업체별 매입단가 시스템 (정렬 순서 업데이트 및 계산 대상 제한)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -582,7 +582,7 @@ def run_vendor_purchase_system():
         df_purch['규격2'] = df_purch['규격2'].fillna("")
         df_purch['unit_col'] = df_purch.get('unit_col', "").fillna("")
         
-        # 품목 정렬 우선순위 업데이트 (안전망 -> 멀티망 -> 럿셀망 -> PP로프 -> 와이어로프 -> 와이어클립)
+        # 품목 정렬 우선순위 (안전망(0) -> 멀티망(1) -> 럿셀망(2) -> PP로프(3) -> 와이어로프(4) -> 와이어클립(5) -> 나머지(6))
         def get_item_priority(name):
             n = str(name).strip()
             if '안전망' in n: return 0
@@ -637,9 +637,9 @@ def run_vendor_purchase_system():
         if not sel_items or '전체 선택' in sel_items: df_step1 = df_sorted
         else: df_step1 = df_sorted[df_sorted['품목'].isin(sel_items)]
         
-        # 필터: '규격2' 기준 (사용자 요청)
+        # 필터: '규격2' 기준
         all_specs2 = df_step1['규격2'].unique().tolist()
-        # 정렬 (기존 로직 사용)
+        # 정렬
         all_specs2 = sorted(all_specs2, key=lambda x: (get_spec2_rank(x)[0], get_spec2_rank(x)[1]))
         
         with fc2: sel_specs2 = st.multiselect("📏 규격2", ['전체 선택']+all_specs2, default=[])
@@ -647,9 +647,8 @@ def run_vendor_purchase_system():
         else: df_final = df_step1[df_step1['규격2'].isin(sel_specs2)]
         
         # -----------------------------------------------------------
-        # 피벗 및 단위당 계산
+        # 피벗 및 단위당 계산 (엄격한 계산 대상 제한)
         # -----------------------------------------------------------
-        # Pivot: Index=['품목', '규격2', 'unit_col', 'calc_spec']
         df_pivot = df_final.pivot_table(
             index=['품목', '규격2', 'unit_col', 'calc_spec'],
             columns=vendor_col,
@@ -668,39 +667,39 @@ def run_vendor_purchase_system():
             spec = str(row.name[3]) # calc_spec (규격1)
             divisor = 1.0
             
-            if any(x in item_name for x in ['안전망', '멀티망', '럿셀망']):
+            # 계산 대상만 적용: 안전망, 멀티망 (럿셀망 제외)
+            if any(x in item_name for x in ['안전망', '멀티망']):
                 nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]
                 if nums:
                     temp = 1.0
                     for n in nums: temp *= n
                     divisor = temp
+            # 와이어로프
             elif '와이어로프' in item_name:
                 match = re.search(r'\*\s*(\d+(?:\.\d+)?)', spec)
                 if match: divisor = float(match.group(1))
+            # 와이어클립
             elif '와이어클립' in item_name:
                 match = re.search(r'(\d+(?:\.\d+)?)\s*pcs', spec)
                 if match: divisor = float(match.group(1))
                 else: 
                     match_fallback = re.search(r'(\d+(?:\.\d+)?)', spec)
                     if match_fallback: divisor = float(match_fallback.group(1))
-            elif '로프' in item_name: # PP로프 등 기타 로프
-                 match = re.search(r'(\d+(?:\.\d+)?)', spec) # 단순 길이(m) 등 추출 시도
-                 if match: divisor = float(match.group(1))
-
+            
+            # 그 외 (럿셀망, PP로프 등)는 계산 안함 (divisor = 1.0)
             if divisor == 0: divisor = 1.0
             
             return row.apply(lambda x: x / divisor if pd.notnull(x) and isinstance(x, (int, float)) else x)
 
         df_calc = df_display.apply(apply_unit_calc, axis=1)
         
-        # calc_spec 숨기기 (Index에서 제거 후 Grouping)
         df_reset = df_calc.reset_index()
         # Group by [품목, 규격2] (sort=False 하여 위에서 정렬한 순서 유지)
         df_grouped = df_reset.groupby(['품목', '규격2'], sort=False)[valid_cols].first().reset_index()
         df_grouped = df_grouped.set_index(['품목', '규격2'])
         
         # -----------------------------------------------------------
-        # 품목 기준 열 정렬 (가격순 재배치 로직 강화)
+        # 품목 기준 열 정렬 (가격순 재배치 로직)
         # -----------------------------------------------------------
         st.divider()
         
@@ -722,13 +721,10 @@ def run_vendor_purchase_system():
         if sort_std != "선택 안함" and sort_std in row_map:
             target_idx = row_map[sort_std]
             try:
-                # 안전한 행 추출
                 target_row = df_grouped.loc[target_idx]
-                # 중복 행이 있을 경우 첫 번째 행 선택
-                if isinstance(target_row, pd.DataFrame): 
-                    target_row = target_row.iloc[0]
+                if isinstance(target_row, pd.DataFrame): target_row = target_row.iloc[0]
                 
-                prices = target_row[final_vendors] # 현재 컬럼들 기준
+                prices = target_row[final_vendors]
                 
                 def sort_key(v):
                     val = prices[v]
@@ -737,7 +733,6 @@ def run_vendor_purchase_system():
                     return val
                 
                 is_reverse = "높은" in sort_order
-                
                 if is_reverse:
                     final_vendors = sorted(final_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else float('inf'))
                 else:
@@ -751,7 +746,6 @@ def run_vendor_purchase_system():
         
         st.subheader("📋 업체별 매입단가표 (단위당)")
         
-        # 규격2 열 너비 설정
         st.dataframe(
             df_final_display.applymap(format_price_safe), 
             use_container_width=True,
