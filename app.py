@@ -534,7 +534,7 @@ def run_sales_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (규격2 적용, 품목 가나다순 정렬, 비고 제거)
+# 4. [신규] 업체별 매입단가 시스템 (필터 및 표 최적화 - 규격2 적용)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -560,15 +560,17 @@ def run_vendor_purchase_system():
             return
 
         # 컬럼 정규화 (규격1 -> calc_spec, 규격2 -> 규격2)
-        # 비고는 이제 사용하지 않으므로 무시하거나 빈값 처리
         col_map = {}
         if '규격1' in df_purch.columns: col_map['규격1'] = 'calc_spec'
         elif '규격' in df_purch.columns: col_map['규격'] = 'calc_spec'
         else: df_purch['calc_spec'] = ""
             
-        # display_spec 대신 '규격2' 이름 사용
         if '규격2' in df_purch.columns: col_map['규격2'] = '규격2'
         else: df_purch['규격2'] = df_purch.get('calc_spec', "")
+            
+        note_col = '비고' if '비고' in df_purch.columns else '비고 1'
+        if note_col in df_purch.columns: col_map[note_col] = 'note_col'
+        else: df_purch['note_col'] = ""
             
         if '단위' in df_purch.columns: col_map['단위'] = 'unit_col'
         else: df_purch['unit_col'] = ""
@@ -607,13 +609,14 @@ def run_vendor_purchase_system():
         if not sel_items or '전체 선택' in sel_items: df_step1 = df_sorted
         else: df_step1 = df_sorted[df_sorted['품목'].isin(sel_items)]
         
-        # 필터는 계산용 규격(규격1) 기준
-        all_specs = df_step1['calc_spec'].unique().tolist()
-        all_specs = sorted(all_specs, key=natural_sort_key)
+        # 필터 변경: 규격2 기준
+        all_specs2 = df_step1['규격2'].unique().tolist()
+        # 규격2 정렬 (숫자 인식)
+        all_specs2 = sorted(all_specs2, key=natural_sort_key)
         
-        with fc2: sel_specs = st.multiselect("📏 규격 (계산용)", ['전체 선택']+all_specs, default=[])
-        if not sel_specs or '전체 선택' in sel_specs: df_final = df_step1
-        else: df_final = df_step1[df_step1['calc_spec'].isin(sel_specs)]
+        with fc2: sel_specs2 = st.multiselect("📏 규격2", ['전체 선택']+all_specs2, default=[])
+        if not sel_specs2 or '전체 선택' in sel_specs2: df_final = df_step1
+        else: df_final = df_step1[df_step1['규격2'].isin(sel_specs2)]
         
         # -----------------------------------------------------------
         # 피벗 및 단위당 계산
@@ -634,7 +637,7 @@ def run_vendor_purchase_system():
 
         def apply_unit_calc(row):
             item_name = str(row.name[0])
-            spec = str(row.name[3]) # calc_spec
+            spec = str(row.name[3]) # calc_spec (규격1)
             divisor = 1.0
             
             if any(x in item_name for x in ['안전망', '멀티망']):
@@ -661,11 +664,12 @@ def run_vendor_purchase_system():
         
         # calc_spec 숨기기 (Index에서 제거 후 Grouping)
         df_reset = df_calc.reset_index()
-        # Group by visible columns: ['품목', '규격2'] (단위도 숨김 요청? 표 인덱스 [품목, 규격2]라고 하셨음)
-        # 하지만 단위가 다르면 합치기 애매할 수 있으나 요청대로 진행.
+        # Group by [품목, 규격2] (sort=True -> 품목 가나다순 정렬 보장)
         df_grouped = df_reset.groupby(['품목', '규격2'], sort=True)[valid_cols].first().reset_index()
         df_grouped = df_grouped.set_index(['품목', '규격2'])
         
+        # 인덱스 이름 변경 없음 (이미 '품목', '규격2')
+
         # -----------------------------------------------------------
         # 품목 기준 열 정렬
         # -----------------------------------------------------------
@@ -689,6 +693,7 @@ def run_vendor_purchase_system():
         if sort_std != "선택 안함" and sort_std in row_map:
             target_idx = row_map[sort_std]
             try:
+                # 안전한 행 추출
                 target_row = df_grouped.loc[target_idx]
                 if isinstance(target_row, pd.DataFrame): target_row = target_row.iloc[0]
                 
@@ -713,7 +718,15 @@ def run_vendor_purchase_system():
         df_final_display = df_grouped[final_vendors]
         
         st.subheader("📋 업체별 매입단가표 (단위당)")
-        st.dataframe(df_final_display.applymap(format_price_safe), use_container_width=True)
+        
+        # 규격2 열 너비 설정
+        st.dataframe(
+            df_final_display.applymap(format_price_safe), 
+            use_container_width=True,
+            column_config={
+                "규격2": st.column_config.TextColumn("규격2", width="medium")
+            }
+        )
 
     except Exception as e:
         st.error(f"오류 발생: {e}")
@@ -726,7 +739,7 @@ if __name__ == "__main__":
     
     if menu == "매입견적 비교":
         run_purchase_estimate_system()
-    elif menu == "매출 단가 조회":
+    elif menu == "매출단가 조회":
         run_sales_system()
     elif menu == "업체별 매입단가":
         run_vendor_purchase_system()
