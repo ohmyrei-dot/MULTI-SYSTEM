@@ -534,7 +534,7 @@ def run_sales_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (정렬 순서 업데이트 및 계산 대상 제한)
+# 4. [신규] 업체별 매입단가 시스템 (정렬 및 계산 로직 엄격 적용)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -582,7 +582,7 @@ def run_vendor_purchase_system():
         df_purch['규격2'] = df_purch['규격2'].fillna("")
         df_purch['unit_col'] = df_purch.get('unit_col', "").fillna("")
         
-        # 품목 정렬 우선순위 (안전망(0) -> 멀티망(1) -> 럿셀망(2) -> PP로프(3) -> 와이어로프(4) -> 와이어클립(5) -> 나머지(6))
+        # 품목 정렬 우선순위 (안전망 -> 멀티망 -> 럿셀망 -> PP로프 -> 와이어로프 -> 와이어클립 -> 나머지)
         def get_item_priority(name):
             n = str(name).strip()
             if '안전망' in n: return 0
@@ -591,18 +591,18 @@ def run_vendor_purchase_system():
             if 'PP로프' in n: return 3
             if '와이어로프' in n: return 4
             if '와이어클립' in n: return 5
-            return 6 # 나머지
+            return 6 # 그 외 나머지
 
         df_purch['rank_group'] = df_purch['품목'].apply(get_item_priority)
         
-        # 규격2 정렬: 빈값 우선 -> 숫자 크기 순 (Natural Sort)
+        # 규격2 정렬: 빈값/(-) 우선 -> 숫자 크기 순 (Natural Sort)
         def get_spec2_rank(s):
             text = str(s).strip()
             # 1. 빈값, -, nan 우선
             if not text or text == '-' or text.lower() == 'nan':
                 return (0, 0.0)
             
-            # 2. 숫자 추출 (Natural)
+            # 2. 숫자 추출 (Natural Sort)
             match = re.search(r'(\d+(\.\d+)?)', text)
             if match:
                 return (1, float(match.group(1)))
@@ -647,7 +647,7 @@ def run_vendor_purchase_system():
         else: df_final = df_step1[df_step1['규격2'].isin(sel_specs2)]
         
         # -----------------------------------------------------------
-        # 피벗 및 단위당 계산 (엄격한 계산 대상 제한)
+        # 피벗 및 단위당 계산 (계산 대상 엄격 제한: 4개 품목만)
         # -----------------------------------------------------------
         df_pivot = df_final.pivot_table(
             index=['품목', '규격2', 'unit_col', 'calc_spec'],
@@ -667,18 +667,18 @@ def run_vendor_purchase_system():
             spec = str(row.name[3]) # calc_spec (규격1)
             divisor = 1.0
             
-            # 계산 대상만 적용: 안전망, 멀티망 (럿셀망 제외)
+            # 1. 안전망, 멀티망 (럿셀망 제외)
             if any(x in item_name for x in ['안전망', '멀티망']):
                 nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]
                 if nums:
                     temp = 1.0
                     for n in nums: temp *= n
                     divisor = temp
-            # 와이어로프
+            # 2. 와이어로프 ( * 뒤 숫자)
             elif '와이어로프' in item_name:
                 match = re.search(r'\*\s*(\d+(?:\.\d+)?)', spec)
                 if match: divisor = float(match.group(1))
-            # 와이어클립
+            # 3. 와이어클립 ( pcs 앞 숫자 또는 그냥 숫자)
             elif '와이어클립' in item_name:
                 match = re.search(r'(\d+(?:\.\d+)?)\s*pcs', spec)
                 if match: divisor = float(match.group(1))
@@ -686,7 +686,7 @@ def run_vendor_purchase_system():
                     match_fallback = re.search(r'(\d+(?:\.\d+)?)', spec)
                     if match_fallback: divisor = float(match_fallback.group(1))
             
-            # 그 외 (럿셀망, PP로프 등)는 계산 안함 (divisor = 1.0)
+            # 그 외 모든 품목 (럿셀망, PP로프 등)은 계산하지 않음. divisor = 1.0
             if divisor == 0: divisor = 1.0
             
             return row.apply(lambda x: x / divisor if pd.notnull(x) and isinstance(x, (int, float)) else x)
@@ -694,12 +694,12 @@ def run_vendor_purchase_system():
         df_calc = df_display.apply(apply_unit_calc, axis=1)
         
         df_reset = df_calc.reset_index()
-        # Group by [품목, 규격2] (sort=False 하여 위에서 정렬한 순서 유지)
+        # Grouping (sort=False 하여 위에서 정렬한 품목/규격 순서 유지)
         df_grouped = df_reset.groupby(['품목', '규격2'], sort=False)[valid_cols].first().reset_index()
         df_grouped = df_grouped.set_index(['품목', '규격2'])
         
         # -----------------------------------------------------------
-        # 품목 기준 열 정렬 (가격순 재배치 로직)
+        # 품목 기준 열 정렬 (가격순)
         # -----------------------------------------------------------
         st.divider()
         
@@ -724,7 +724,7 @@ def run_vendor_purchase_system():
                 target_row = df_grouped.loc[target_idx]
                 if isinstance(target_row, pd.DataFrame): target_row = target_row.iloc[0]
                 
-                prices = target_row[final_vendors]
+                prices = target_row[valid_cols]
                 
                 def sort_key(v):
                     val = prices[v]
@@ -734,9 +734,9 @@ def run_vendor_purchase_system():
                 
                 is_reverse = "높은" in sort_order
                 if is_reverse:
-                    final_vendors = sorted(final_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else float('inf'))
+                    final_vendors = sorted(valid_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else -float('inf'))
                 else:
-                    final_vendors = sorted(final_vendors, key=sort_key)
+                    final_vendors = sorted(valid_vendors, key=sort_key)
                     
                 st.toast(f"✅ '{sort_std}' 기준 정렬 완료")
             except Exception as e:
