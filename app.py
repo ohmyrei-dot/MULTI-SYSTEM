@@ -534,7 +534,7 @@ def run_sales_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (필터 및 표 최적화 - 규격2 적용)
+# 4. [신규] 업체별 매입단가 시스템 (규격2 기준 필터/출력, 열정렬 개선)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -559,7 +559,7 @@ def run_vendor_purchase_system():
             st.error("매입 데이터에서 '매입업체' 또는 '매입단가' 컬럼을 찾을 수 없습니다.")
             return
 
-        # 컬럼 정규화 (규격1 -> calc_spec, 규격2 -> 규격2)
+        # 컬럼 정규화
         col_map = {}
         if '규격1' in df_purch.columns: col_map['규격1'] = 'calc_spec'
         elif '규격' in df_purch.columns: col_map['규격'] = 'calc_spec'
@@ -568,9 +568,8 @@ def run_vendor_purchase_system():
         if '규격2' in df_purch.columns: col_map['규격2'] = '규격2'
         else: df_purch['규격2'] = df_purch.get('calc_spec', "")
             
-        note_col = '비고' if '비고' in df_purch.columns else '비고 1'
-        if note_col in df_purch.columns: col_map[note_col] = 'note_col'
-        else: df_purch['note_col'] = ""
+        # 비고는 사용하지 않지만 로직 통일성을 위해 빈 값으로 둠
+        df_purch['note_col'] = ""
             
         if '단위' in df_purch.columns: col_map['단위'] = 'unit_col'
         else: df_purch['unit_col'] = ""
@@ -609,7 +608,7 @@ def run_vendor_purchase_system():
         if not sel_items or '전체 선택' in sel_items: df_step1 = df_sorted
         else: df_step1 = df_sorted[df_sorted['품목'].isin(sel_items)]
         
-        # 필터 변경: 규격2 기준
+        # 필터: 규격2 기준 (계산용 규격1은 내부적으로만 사용)
         all_specs2 = df_step1['규격2'].unique().tolist()
         # 규격2 정렬 (숫자 인식)
         all_specs2 = sorted(all_specs2, key=natural_sort_key)
@@ -671,7 +670,7 @@ def run_vendor_purchase_system():
         # 인덱스 이름 변경 없음 (이미 '품목', '규격2')
 
         # -----------------------------------------------------------
-        # 품목 기준 열 정렬
+        # 품목 기준 열 정렬 (가격순 재배치 로직 강화)
         # -----------------------------------------------------------
         st.divider()
         
@@ -695,24 +694,36 @@ def run_vendor_purchase_system():
             try:
                 # 안전한 행 추출
                 target_row = df_grouped.loc[target_idx]
-                if isinstance(target_row, pd.DataFrame): target_row = target_row.iloc[0]
+                # 중복 행이 있을 경우 첫 번째 행 선택 (Series 보장)
+                if isinstance(target_row, pd.DataFrame): 
+                    target_row = target_row.iloc[0]
                 
-                prices = target_row[valid_cols]
+                # 현재 화면에 표시된 업체만 정렬 대상으로 함
+                current_vendors = df_grouped.columns.tolist()
+                prices = target_row[current_vendors]
                 
                 def sort_key(v):
                     val = prices[v]
+                    # 값이 없거나 0이면 무한대로 취급해 맨 뒤로 보냄
                     if pd.isna(val) or val == 0 or val == "":
                         return float('inf') 
                     return val
                 
                 is_reverse = "높은" in sort_order
+                
                 if is_reverse:
-                    final_vendors = sorted(valid_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else -float('inf'))
+                    # 높은 가격순: -val 기준으로 정렬 (값이 클수록 -val은 작아져서 앞쪽으로 옴)
+                    # inf(없는값)는 -inf가 되어 맨 앞으로 오게 되므로 예외 처리 필요
+                    # 여기서는 없는 값을 맨 뒤로 보내고 싶으므로, 
+                    # 값이 있으면 -val, 없으면 +inf를 반환하는 키를 사용
+                    final_vendors = sorted(current_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else float('inf'))
                 else:
-                    final_vendors = sorted(valid_vendors, key=sort_key)
+                    # 낮은 가격순: val 기준 오름차순 (작은값 -> 큰값 -> inf)
+                    final_vendors = sorted(current_vendors, key=sort_key)
                     
                 st.toast(f"✅ '{sort_std}' 기준 정렬 완료")
-            except:
+            except Exception as e:
+                # 정렬 중 에러 발생 시 기존 순서 유지
                 pass 
 
         df_final_display = df_grouped[final_vendors]
