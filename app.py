@@ -534,7 +534,7 @@ def run_sales_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (UI 개선 - 규격2 필터, 너비, 정렬)
+# 4. [신규] 업체별 매입단가 시스템 (품목 대그룹 정렬 업데이트)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -582,23 +582,20 @@ def run_vendor_purchase_system():
         df_purch['규격2'] = df_purch['규격2'].fillna("")
         df_purch['unit_col'] = df_purch.get('unit_col', "").fillna("")
         
-        # 품목 정렬 우선순위 (안전망 -> 멀티망 -> 럿셀망 -> 와이어로프 -> 와이어클립)
+        # 품목 정렬 우선순위 업데이트 (안전망 -> 멀티망 -> 럿셀망 -> PP로프 -> 와이어로프 -> 와이어클립)
         def get_item_priority(name):
             n = str(name).strip()
             if '안전망' in n: return 0
             if '멀티망' in n: return 1
             if '럿셀망' in n: return 2
-            if '와이어로프' in n: return 3
-            if '와이어클립' in n: return 4
-            return 5 # 나머지
+            if 'PP로프' in n: return 3
+            if '와이어로프' in n: return 4
+            if '와이어클립' in n: return 5
+            return 6 # 나머지
 
         df_purch['rank_group'] = df_purch['품목'].apply(get_item_priority)
         
-        # 정렬: 대그룹(rank_group) -> 품목(가나다) -> 규격2(Natural Sort)
-        # 규격2 Natural Sort는 이미 natural_sort_key Helper가 있음.
-        # 그러나 sort_values에 직접 key를 적용하기 위해 임시 컬럼 생성.
-        # 단, 규격2는 빈값/(-) 우선 정렬 로직도 필요함. (기존 로직)
-        
+        # 규격2 정렬: 빈값 우선 -> 숫자 크기 순 (Natural Sort)
         def get_spec2_rank(s):
             text = str(s).strip()
             # 1. 빈값, -, nan 우선
@@ -686,7 +683,10 @@ def run_vendor_purchase_system():
                 else: 
                     match_fallback = re.search(r'(\d+(?:\.\d+)?)', spec)
                     if match_fallback: divisor = float(match_fallback.group(1))
-            
+            elif '로프' in item_name: # PP로프 등 기타 로프
+                 match = re.search(r'(\d+(?:\.\d+)?)', spec) # 단순 길이(m) 등 추출 시도
+                 if match: divisor = float(match.group(1))
+
             if divisor == 0: divisor = 1.0
             
             return row.apply(lambda x: x / divisor if pd.notnull(x) and isinstance(x, (int, float)) else x)
