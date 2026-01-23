@@ -534,7 +534,7 @@ def run_sales_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (규격2 기준 필터/출력, 열정렬 개선)
+# 4. [신규] 업체별 매입단가 시스템 (UI 개선 - 규격2 필터, 너비, 정렬)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -568,8 +568,9 @@ def run_vendor_purchase_system():
         if '규격2' in df_purch.columns: col_map['규격2'] = '규격2'
         else: df_purch['규격2'] = df_purch.get('calc_spec', "")
             
-        # 비고는 사용하지 않지만 로직 통일성을 위해 빈 값으로 둠
-        df_purch['note_col'] = ""
+        note_col = '비고' if '비고' in df_purch.columns else '비고 1'
+        if note_col in df_purch.columns: col_map[note_col] = 'note_col'
+        else: df_purch['note_col'] = ""
             
         if '단위' in df_purch.columns: col_map['단위'] = 'unit_col'
         else: df_purch['unit_col'] = ""
@@ -581,10 +582,41 @@ def run_vendor_purchase_system():
         df_purch['규격2'] = df_purch['규격2'].fillna("")
         df_purch['unit_col'] = df_purch.get('unit_col', "").fillna("")
         
-        # 정렬: [품목] 가나다순 오름차순
+        # 품목 정렬 우선순위 (안전망 -> 멀티망 -> 럿셀망 -> 와이어로프 -> 와이어클립)
+        def get_item_priority(name):
+            n = str(name).strip()
+            if '안전망' in n: return 0
+            if '멀티망' in n: return 1
+            if '럿셀망' in n: return 2
+            if '와이어로프' in n: return 3
+            if '와이어클립' in n: return 4
+            return 5 # 나머지
+
+        df_purch['rank_group'] = df_purch['품목'].apply(get_item_priority)
+        
+        # 정렬: 대그룹(rank_group) -> 품목(가나다) -> 규격2(Natural Sort)
+        # 규격2 Natural Sort는 이미 natural_sort_key Helper가 있음.
+        # 그러나 sort_values에 직접 key를 적용하기 위해 임시 컬럼 생성.
+        # 단, 규격2는 빈값/(-) 우선 정렬 로직도 필요함. (기존 로직)
+        
+        def get_spec2_rank(s):
+            text = str(s).strip()
+            # 1. 빈값, -, nan 우선
+            if not text or text == '-' or text.lower() == 'nan':
+                return (0, 0.0)
+            
+            # 2. 숫자 추출 (Natural)
+            match = re.search(r'(\d+(\.\d+)?)', text)
+            if match:
+                return (1, float(match.group(1)))
+            return (2, float('inf'))
+
+        df_purch['spec2_rank_type'] = df_purch['규격2'].apply(lambda x: get_spec2_rank(x)[0])
+        df_purch['spec2_rank_val'] = df_purch['규격2'].apply(lambda x: get_spec2_rank(x)[1])
+
         df_sorted = df_purch.sort_values(
-            by=['품목', '규격2'],
-            ascending=[True, True]
+            by=['rank_group', '품목', 'spec2_rank_type', 'spec2_rank_val'],
+            ascending=[True, True, True, True]
         )
 
         # -----------------------------------------------------------
@@ -608,10 +640,10 @@ def run_vendor_purchase_system():
         if not sel_items or '전체 선택' in sel_items: df_step1 = df_sorted
         else: df_step1 = df_sorted[df_sorted['품목'].isin(sel_items)]
         
-        # 필터: 규격2 기준 (계산용 규격1은 내부적으로만 사용)
+        # 필터: '규격2' 기준 (사용자 요청)
         all_specs2 = df_step1['규격2'].unique().tolist()
-        # 규격2 정렬 (숫자 인식)
-        all_specs2 = sorted(all_specs2, key=natural_sort_key)
+        # 정렬 (기존 로직 사용)
+        all_specs2 = sorted(all_specs2, key=lambda x: (get_spec2_rank(x)[0], get_spec2_rank(x)[1]))
         
         with fc2: sel_specs2 = st.multiselect("📏 규격2", ['전체 선택']+all_specs2, default=[])
         if not sel_specs2 or '전체 선택' in sel_specs2: df_final = df_step1
@@ -639,7 +671,7 @@ def run_vendor_purchase_system():
             spec = str(row.name[3]) # calc_spec (규격1)
             divisor = 1.0
             
-            if any(x in item_name for x in ['안전망', '멀티망']):
+            if any(x in item_name for x in ['안전망', '멀티망', '럿셀망']):
                 nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]
                 if nums:
                     temp = 1.0
@@ -663,12 +695,10 @@ def run_vendor_purchase_system():
         
         # calc_spec 숨기기 (Index에서 제거 후 Grouping)
         df_reset = df_calc.reset_index()
-        # Group by [품목, 규격2] (sort=True -> 품목 가나다순 정렬 보장)
-        df_grouped = df_reset.groupby(['품목', '규격2'], sort=True)[valid_cols].first().reset_index()
+        # Group by [품목, 규격2] (sort=False 하여 위에서 정렬한 순서 유지)
+        df_grouped = df_reset.groupby(['품목', '규격2'], sort=False)[valid_cols].first().reset_index()
         df_grouped = df_grouped.set_index(['품목', '규격2'])
         
-        # 인덱스 이름 변경 없음 (이미 '품목', '규격2')
-
         # -----------------------------------------------------------
         # 품목 기준 열 정렬 (가격순 재배치 로직 강화)
         # -----------------------------------------------------------
@@ -694,17 +724,14 @@ def run_vendor_purchase_system():
             try:
                 # 안전한 행 추출
                 target_row = df_grouped.loc[target_idx]
-                # 중복 행이 있을 경우 첫 번째 행 선택 (Series 보장)
+                # 중복 행이 있을 경우 첫 번째 행 선택
                 if isinstance(target_row, pd.DataFrame): 
                     target_row = target_row.iloc[0]
                 
-                # 현재 화면에 표시된 업체만 정렬 대상으로 함
-                current_vendors = df_grouped.columns.tolist()
-                prices = target_row[current_vendors]
+                prices = target_row[final_vendors] # 현재 컬럼들 기준
                 
                 def sort_key(v):
                     val = prices[v]
-                    # 값이 없거나 0이면 무한대로 취급해 맨 뒤로 보냄
                     if pd.isna(val) or val == 0 or val == "":
                         return float('inf') 
                     return val
@@ -712,18 +739,12 @@ def run_vendor_purchase_system():
                 is_reverse = "높은" in sort_order
                 
                 if is_reverse:
-                    # 높은 가격순: -val 기준으로 정렬 (값이 클수록 -val은 작아져서 앞쪽으로 옴)
-                    # inf(없는값)는 -inf가 되어 맨 앞으로 오게 되므로 예외 처리 필요
-                    # 여기서는 없는 값을 맨 뒤로 보내고 싶으므로, 
-                    # 값이 있으면 -val, 없으면 +inf를 반환하는 키를 사용
-                    final_vendors = sorted(current_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else float('inf'))
+                    final_vendors = sorted(final_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else float('inf'))
                 else:
-                    # 낮은 가격순: val 기준 오름차순 (작은값 -> 큰값 -> inf)
-                    final_vendors = sorted(current_vendors, key=sort_key)
+                    final_vendors = sorted(final_vendors, key=sort_key)
                     
                 st.toast(f"✅ '{sort_std}' 기준 정렬 완료")
             except Exception as e:
-                # 정렬 중 에러 발생 시 기존 순서 유지
                 pass 
 
         df_final_display = df_grouped[final_vendors]
