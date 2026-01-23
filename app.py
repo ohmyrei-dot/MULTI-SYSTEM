@@ -50,7 +50,6 @@ def format_price_safe(val):
     try:
         if pd.isna(val) or val == "" or val == 0:
             return ""
-        # 문자열이 들어올 경우를 대비해 float 변환 후 int 처리
         return f"{int(float(val)):,}"
     except:
         return str(val)
@@ -535,7 +534,7 @@ def run_sales_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (컬럼 오류 및 정렬 오류 해결)
+# 4. [신규] 업체별 매입단가 시스템 (규격2 출력 최적화 + 정렬 오류 해결)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -547,61 +546,54 @@ def run_vendor_purchase_system():
         return
 
     try:
-        # [핵심] 매입 데이터 로드 및 컬럼 매칭 강화
+        # 1. 데이터 로드 및 컬럼 매칭
         df_purch = pd.read_excel(file_path, sheet_name='Purchase_매입단가')
         
-        # '매입업체' 컬럼과 '매입단가' 컬럼 명시적 찾기 (fallback '업체', '단가')
+        # '매입업체', '매입단가' 컬럼 찾기 (Long Format)
         vendor_col = next((c for c in df_purch.columns if '매입업체' in str(c)), None)
-        if not vendor_col:
-            vendor_col = next((c for c in df_purch.columns if '업체' in str(c)), None)
+        if not vendor_col: vendor_col = next((c for c in df_purch.columns if '업체' in str(c)), None)
             
         price_col = next((c for c in df_purch.columns if '매입단가' in str(c)), None)
-        if not price_col:
-            price_col = next((c for c in df_purch.columns if '단가' in str(c) or '가격' in str(c)), None)
+        if not price_col: price_col = next((c for c in df_purch.columns if '단가' in str(c) or '가격' in str(c)), None)
             
         if not vendor_col or not price_col:
             st.error("매입 데이터에서 '매입업체' 또는 '매입단가' 컬럼을 찾을 수 없습니다.")
             return
 
-        # 컬럼 정규화
-        spec_col = '규격' if '규격' in df_purch.columns else '규격1'
-        if spec_col in df_purch.columns: df_purch = df_purch.rename(columns={spec_col: '규격'})
-        else: df_purch['규격'] = ""
+        # 컬럼 정규화: 규격1(계산용), 규격2(출력용)
+        col_map = {}
+        if '규격1' in df_purch.columns: col_map['규격1'] = 'calc_spec'
+        elif '규격' in df_purch.columns: col_map['규격'] = 'calc_spec'
+        else: df_purch['calc_spec'] = ""
+            
+        if '규격2' in df_purch.columns: col_map['규격2'] = 'display_spec'
+        else: df_purch['display_spec'] = df_purch.get('calc_spec', "")
             
         note_col = '비고' if '비고' in df_purch.columns else '비고 1'
-        if note_col in df_purch.columns:
-            if note_col != '비고 1': df_purch = df_purch.rename(columns={note_col: '비고 1'})
-            note_col = '비고 1'
-        else:
-            df_purch['비고 1'] = ""
-            note_col = '비고 1'
+        if note_col in df_purch.columns: col_map[note_col] = 'note_col'
+        else: df_purch['note_col'] = ""
             
-        if '단위' not in df_purch.columns: df_purch['단위'] = ""
+        if '단위' in df_purch.columns: col_map['단위'] = 'unit_col'
+        else: df_purch['unit_col'] = ""
+            
+        df_purch = df_purch.rename(columns=col_map)
         
         # 결측치 처리
-        df_purch['규격'] = df_purch['규격'].fillna("")
-        df_purch[note_col] = df_purch[note_col].fillna("")
-        df_purch['단위'] = df_purch['단위'].fillna("")
+        df_purch['calc_spec'] = df_purch['calc_spec'].fillna("")
+        df_purch['display_spec'] = df_purch['display_spec'].fillna("")
+        df_purch['note_col'] = df_purch.get('note_col', "").fillna("")
+        df_purch['unit_col'] = df_purch.get('unit_col', "").fillna("")
         
-        # 정렬을 위한 랭크 생성
+        # 정렬용 랭크 (calc_spec 기준)
         priority_items = ['안전망1cm', '안전망2cm', 'pp로프', '와이어로프', '와이어클립', '멀티망', '럿셀망', '케이블타이']
         priority_map = {item: i for i, item in enumerate(priority_items)}
         
-        def get_note_type_rank(note):
-            s = str(note).strip()
-            if s == 'KS로프가공': return 2
-            if s == '로프가공': return 3
-            if 'KS' in s: return 0
-            return 1
-
         df_purch['rank_item'] = df_purch['품목'].map(lambda x: priority_map.get(x, 999))
-        df_purch['rank_note_type'] = df_purch[note_col].apply(get_note_type_rank)
-        df_purch['rank_note_num'] = df_purch[note_col].apply(extract_number_safe)
-        df_purch['rank_spec_num'] = df_purch['규격'].apply(extract_number_safe)
+        df_purch['rank_spec_num'] = df_purch['calc_spec'].apply(extract_number_safe) # 안전한 숫자 추출
 
         df_sorted = df_purch.sort_values(
-            by=['rank_item', 'rank_note_type', 'rank_note_num', 'rank_spec_num'],
-            ascending=[True, True, True, True]
+            by=['rank_item', 'rank_spec_num'],
+            ascending=[True, True]
         )
 
         # -----------------------------------------------------------
@@ -615,9 +607,9 @@ def run_vendor_purchase_system():
         selected_vendors_raw = st.multiselect("🏢 매입처 선택", vendor_options, default=[])
         
         if not selected_vendors_raw or '전체 선택' in selected_vendors_raw:
-            final_selected_vendors = all_vendors
+            target_vendors = all_vendors
         else:
-            final_selected_vendors = selected_vendors_raw
+            target_vendors = selected_vendors_raw
 
         fc1, fc2, fc3 = st.columns(3)
         all_items = df_sorted['품목'].unique().tolist()
@@ -625,34 +617,28 @@ def run_vendor_purchase_system():
         if not sel_items or '전체 선택' in sel_items: df_step1 = df_sorted
         else: df_step1 = df_sorted[df_sorted['품목'].isin(sel_items)]
         
-        all_specs = df_step1['규격'].unique().tolist()
-        with fc2: sel_specs = st.multiselect("📏 규격", ['전체 선택']+all_specs, default=[])
-        if not sel_specs or '전체 선택' in sel_specs: df_step2 = df_step1
-        else: df_step2 = df_step1[df_step1['규격'].isin(sel_specs)]
+        # 필터는 계산용 규격(규격1) 기준 (사용자 익숙)
+        all_specs = df_step1['calc_spec'].unique().tolist()
+        # 자연 정렬 적용
+        all_specs = sorted(all_specs, key=natural_sort_key)
         
-        all_notes = df_step2[note_col].unique().tolist()
-        with fc3: sel_notes = st.multiselect("📝 비고", ['전체 선택']+all_notes, default=[])
-        if not sel_notes or '전체 선택' in sel_notes: df_final = df_step2
-        else: df_final = df_step2[df_step2[note_col].isin(sel_notes)]
-
+        with fc2: sel_specs = st.multiselect("📏 규격 (계산용)", ['전체 선택']+all_specs, default=[])
+        if not sel_specs or '전체 선택' in sel_specs: df_step2 = df_step1
+        else: df_step2 = df_step1[df_step1['calc_spec'].isin(sel_specs)]
+        
         # -----------------------------------------------------------
         # 피벗 및 단위당 계산
         # -----------------------------------------------------------
-        # 피벗 생성 (인덱스: 품목, 규격, 비고, 단위 / 컬럼: 업체 / 값: 단가)
-        df_pivot = df_final.pivot_table(
-            index=['품목', '규격', note_col, '단위'],
+        # Pivot: Index=['품목', 'display_spec', 'note_col', 'unit_col', 'calc_spec'] -> calc_spec 필요 for calc
+        df_pivot = df_step2.pivot_table(
+            index=['품목', 'display_spec', 'note_col', 'unit_col', 'calc_spec'],
             columns=vendor_col,
             values=price_col,
             aggfunc='first'
         )
         
-        # 선택된 업체 필터링 (공백 무시 비교)
-        pivot_cols = df_pivot.columns
-        valid_cols = []
-        clean_targets = [str(v).replace(' ', '') for v in final_selected_vendors]
-        for c in pivot_cols:
-            if str(c).replace(' ', '') in clean_targets:
-                valid_cols.append(c)
+        # 선택된 업체 필터링
+        valid_cols = [c for c in df_pivot.columns if str(c) in target_vendors]
         df_display = df_pivot[valid_cols]
         
         # 데이터 존재 행 필터링
@@ -662,7 +648,7 @@ def run_vendor_purchase_system():
         # 단위당 계산 적용 (4대 품목)
         def apply_unit_calc(row):
             item_name = str(row.name[0])
-            spec = str(row.name[1])
+            spec = str(row.name[4]) # calc_spec
             divisor = 1.0
             
             if any(x in item_name for x in ['안전망', '멀티망']):
@@ -675,8 +661,13 @@ def run_vendor_purchase_system():
                 match = re.search(r'\*\s*(\d+(?:\.\d+)?)', spec)
                 if match: divisor = float(match.group(1))
             elif '와이어클립' in item_name:
-                match = re.search(r'(\d+(?:\.\d+)?)', spec)
+                # 'pcs' 앞의 숫자
+                match = re.search(r'(\d+(?:\.\d+)?)\s*pcs', spec)
                 if match: divisor = float(match.group(1))
+                else: 
+                    # 없으면 그냥 숫자 찾기
+                    match_fallback = re.search(r'(\d+(?:\.\d+)?)', spec)
+                    if match_fallback: divisor = float(match_fallback.group(1))
             
             if divisor == 0: divisor = 1.0
             
@@ -684,20 +675,22 @@ def run_vendor_purchase_system():
 
         df_calc = df_display.apply(apply_unit_calc, axis=1)
         
-        # 규격 제거 후 Grouping
-        df_grouped = df_calc.reset_index().drop(columns=['규격']).groupby(['품목', note_col, '단위'], sort=False).first().reset_index()
-        df_grouped = df_grouped.set_index(['품목', note_col, '단위'])
+        # calc_spec 숨기기 (Index에서 제거 후 Grouping)
+        # display_spec(규격2)만 남김
+        df_reset = df_calc.reset_index()
+        # Group by visible columns
+        df_grouped = df_reset.groupby(['품목', 'display_spec'], sort=False)[valid_cols].first().reset_index()
+        df_grouped = df_grouped.set_index(['품목', 'display_spec'])
 
         # -----------------------------------------------------------
-        # 품목 기준 열 정렬 (안전성 강화)
+        # 품목 기준 열 정렬
         # -----------------------------------------------------------
         st.divider()
         
         sort_opts = ["선택 안함"]
         row_map = {}
         for idx in df_grouped.index:
-            # 키를 고유하게 (단위 포함)
-            label = f"{idx[0]} | {idx[1]} | {idx[2]}"
+            label = f"{idx[0]} | {idx[1]}"
             sort_opts.append(label)
             row_map[label] = idx
             
@@ -707,43 +700,39 @@ def run_vendor_purchase_system():
         with c_sort2:
             sort_order = st.radio("정렬 순서", ["낮은 가격순", "높은 가격순"], horizontal=True)
             
-        final_vendors = df_display.columns.tolist() # 초기값
+        final_vendors = valid_cols
         
         if sort_std != "선택 안함" and sort_std in row_map:
             target_idx = row_map[sort_std]
             try:
-                if target_idx in df_grouped.index:
-                    target_row = df_grouped.loc[target_idx]
-                    if isinstance(target_row, pd.DataFrame): target_row = target_row.iloc[0]
+                # 안전한 행 추출
+                target_row = df_grouped.loc[target_idx]
+                if isinstance(target_row, pd.DataFrame): target_row = target_row.iloc[0]
+                
+                prices = target_row[valid_cols]
+                
+                def sort_key(v):
+                    val = prices[v]
+                    if pd.isna(val) or val == 0 or val == "":
+                        return float('inf') 
+                    return val
+                
+                is_reverse = "높은" in sort_order
+                if is_reverse:
+                    final_vendors = sorted(valid_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else -float('inf'))
+                else:
+                    final_vendors = sorted(valid_vendors, key=sort_key)
                     
-                    # 현재 표시 중인 업체만 정렬 대상
-                    current_vendors = df_grouped.columns.tolist()
-                    prices = target_row[current_vendors]
-                    
-                    def sort_key(v):
-                        val = prices[v]
-                        if pd.isna(val) or val == 0 or val == "":
-                            return float('inf') 
-                        return val
-                    
-                    is_reverse = "높은" in sort_order
-                    if is_reverse:
-                        final_vendors = sorted(current_vendors, key=lambda v: -sort_key(v) if sort_key(v) != float('inf') else -float('inf'))
-                    else:
-                        final_vendors = sorted(current_vendors, key=sort_key)
-                        
-                    st.toast(f"✅ '{sort_std}' 기준 정렬 완료")
-            except Exception as e:
+                st.toast(f"✅ '{sort_std}' 기준 정렬 완료")
+            except:
                 pass 
 
-        df_display_final = df_grouped[final_vendors]
+        df_final_display = df_grouped[final_vendors]
         
         st.subheader("📋 업체별 매입단가표 (단위당)")
+        st.caption("💡 왼쪽 고정 열: [품목 | 규격2]")
         
-        cols_cfg = {
-            note_col: st.column_config.TextColumn(note_col, width=None, help="비고 사항")
-        }
-        st.dataframe(df_display_final.applymap(format_price_safe), use_container_width=True, column_config=cols_cfg)
+        st.dataframe(df_final_display.applymap(format_price_safe), use_container_width=True)
 
     except Exception as e:
         st.error(f"오류 발생: {e}")
