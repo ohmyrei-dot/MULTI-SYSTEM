@@ -30,7 +30,6 @@ def robust_natural_sort_key(s):
     else: keyword_rank = 1
 
     # 2. 숫자/문자 분리
-    # 숫자를 기준으로 텍스트를 분리하고, 숫자는 float로 변환하여 비교
     def convert(text):
         return float(text) if text.replace('.', '', 1).isdigit() else text.lower()
     
@@ -298,7 +297,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (계층형 핀셋 필터 + 열 정렬 수리)
+# 4. [신규] 업체별 매입단가 시스템 (Unhashable 해결 + 계층형 핀셋 필터 + 열 정렬)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -351,7 +350,7 @@ def run_vendor_purchase_system():
         df_purch['Sort_Base'] = df_purch['품목'].apply(get_base_score)
         df_purch['Sort_Spec'] = df_purch['display_spec'].apply(get_spec_score)
         
-        # 1차 정렬 (데이터 준비)
+        # 1차 정렬
         df_sorted = df_purch.sort_values(
             by=['Sort_Base', '품목', 'calc_spec', 'display_spec'],
             key=lambda x: x.map(robust_natural_sort_key) if x.name in ['calc_spec', 'display_spec'] else x,
@@ -359,7 +358,7 @@ def run_vendor_purchase_system():
         )
 
         # -----------------------------------------------------------
-        # [계층형 핀셋 필터]
+        # [계층형 핀셋 필터] - Unhashable 오류 방지 적용
         # -----------------------------------------------------------
         st.subheader("🔍 데이터 필터")
         all_vendors = sorted(df_sorted[vendor_col].dropna().unique().astype(str))
@@ -380,29 +379,29 @@ def run_vendor_purchase_system():
         with c3: sel_s2 = st.multiselect("📏 규격2 (표시용)", ['전체 선택']+all_s2, default=[])
         df_filtered = df_s2 if not sel_s2 or '전체 선택' in sel_s2 else df_s2[df_s2['display_spec'].isin(sel_s2)]
 
-        # 2단계: 최종 출력 항목 선택 (핀셋)
-        # 필터링된 데이터에서 유니크한 조합 추출
-        # 정렬된 순서 유지
+        # 2단계: 최종 출력 항목 선택 (핀셋) - 튜플 사용
+        # drop_duplicates 후 iterrows 또는 itertuples를 사용하여 튜플 키 생성
         unique_combinations = df_filtered[['품목', 'calc_spec', 'display_spec']].drop_duplicates()
         
-        # 옵션 리스트 생성 (표시용 문자열 -> 실제 데이터 매핑)
-        # 예: "안전망 2cm | 2m*50 | -"
         options_map = {}
         options_list = []
         
-        for _, row in unique_combinations.iterrows():
-            label = f"{row['품목']} | {row['calc_spec']} | {row['display_spec']}"
+        # DataFrame 순회하며 튜플 키 생성 (Unhashable list 방지)
+        for row in unique_combinations.itertuples(index=False):
+            # row는 (품목, calc_spec, display_spec) 형태의 튜플과 유사
+            # 명시적으로 튜플 생성
+            key = (row.품목, row.calc_spec, row.display_spec)
+            label = f"{row.품목} | {row.calc_spec} | {row.display_spec}"
             options_list.append(label)
-            options_map[label] = (row['품목'], row['calc_spec'], row['display_spec'])
+            options_map[label] = key
             
         final_selection = st.multiselect("🎯 최종 출력 항목 선택 (비워두면 위 필터 결과 전체 표시)", options_list, default=[])
         
         if final_selection:
-            # 선택된 항목들만 추출
-            selected_keys = [options_map[opt] for opt in final_selection]
-            # DataFrame 필터링: Multi-column filtering is tricky, so use merge or loops
-            # 가장 확실한 방법: tuple list 매칭
-            # 임시 튜플 컬럼 생성
+            selected_keys = [options_map[opt] for opt in final_selection] # 리스트 안의 튜플들
+            
+            # DataFrame 필터링: Multi-column 매칭
+            # 임시 컬럼에 튜플을 넣어 매칭 (리스트가 아닌 튜플이어야 함)
             df_filtered['temp_key'] = list(zip(df_filtered['품목'], df_filtered['calc_spec'], df_filtered['display_spec']))
             df_final = df_filtered[df_filtered['temp_key'].isin(selected_keys)].drop(columns=['temp_key'])
         else:
@@ -418,7 +417,7 @@ def run_vendor_purchase_system():
             aggfunc='first'
         )
         
-        # 정렬 유지 (Sort_Base 등 활용)
+        # 정렬 유지
         df_pivot = df_pivot.sort_index(level=['Sort_Base', '품목', 'calc_spec', 'display_spec'], key=lambda x: x.map(robust_natural_sort_key) if x.name in ['calc_spec', 'display_spec'] else x)
         
         valid_cols = [c for c in df_pivot.columns if str(c) in target_vendors]
@@ -427,17 +426,12 @@ def run_vendor_purchase_system():
 
         def apply_unit_calc(row):
             item_name = str(row.name[1]); spec = str(row.name[2]); divisor = 1.0
-            # 1. 안전망, 멀티망 (럿셀망 제외)
             if any(x in item_name for x in ['안전망', '멀티망']):
                 nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]; divisor = np.prod(nums) if nums else 1.0
-            # 2. 와이어로프
             elif '와이어로프' in item_name:
                 m = re.search(r'\*\s*(\d+(?:\.\d+)?)', spec); divisor = float(m.group(1)) if m else 1.0
-            # 3. 와이어클립
             elif '와이어클립' in item_name:
                 m = re.search(r'(\d+(?:\.\d+)?)\s*pcs', spec); divisor = float(m.group(1)) if m else 1.0
-            
-            # 럿셀망 등은 계산 X
             return row.apply(lambda x: x / divisor if pd.notnull(x) and isinstance(x, (int, float)) and divisor != 0 else x)
 
         df_calc = df_display.apply(apply_unit_calc, axis=1)
@@ -454,7 +448,7 @@ def run_vendor_purchase_system():
         sort_opts = ["선택 안함"]
         row_map = {}
         for idx in df_final_view.index:
-            # 3단 인덱스
+            # 3단 인덱스 튜플
             label = f"{idx[0]} | {idx[1]} | {idx[2]}"
             sort_opts.append(label)
             row_map[label] = idx
@@ -467,8 +461,8 @@ def run_vendor_purchase_system():
         
         if s_opt != "선택 안함" and s_opt in row_map:
             try:
-                t_idx = row_map[s_opt]
-                t_row = df_final_view.loc[t_idx]
+                t_idx = row_map[s_opt] # 튜플 인덱스
+                t_row = df_final_view.loc[t_idx] # 해당 인덱스 행 조회
                 if isinstance(t_row, pd.DataFrame): t_row = t_row.iloc[0]
                 
                 prices = t_row[valid_cols]
@@ -478,10 +472,7 @@ def run_vendor_purchase_system():
                     return val
                 
                 is_rev = "높은" in s_ord
-                # 높은 순: 값 있는 건 내림차순, 없는 건(inf) 맨 뒤로
-                # 낮은 순: 값 있는 건 오름차순, 없는 건(inf) 맨 뒤로
                 if is_rev:
-                    # 값이 있으면 -val (내림차순 효과), 없으면 inf (맨뒤)
                     final_vendors = sorted(valid_vendors, key=lambda v: -sort_k(v) if sort_k(v) != float('inf') else float('inf'))
                 else:
                     final_vendors = sorted(valid_vendors, key=sort_k)
