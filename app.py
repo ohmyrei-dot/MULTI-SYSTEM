@@ -20,6 +20,7 @@ def robust_natural_sort_key(s):
     """
     [강력한 Natural Sort]
     문자열과 숫자가 섞여 있어도 에러 없이(TypeError 방지) 비교 가능하도록 변환
+    반환값: (키워드순위, ((타입순위, 값), (타입순위, 값)...)) 형태의 튜플
     """
     text = str(s).strip()
     
@@ -28,13 +29,20 @@ def robust_natural_sort_key(s):
     elif '가공' in text: keyword_rank = 2
     else: keyword_rank = 1
 
-    # 2. 숫자/문자 분리
-    def convert(text):
-        return float(text) if text.replace('.', '', 1).isdigit() else text.lower()
+    # 2. 숫자/문자 분리 및 타입핑
+    # (0, 숫자) : 숫자가 우선
+    # (1, 문자) : 문자는 후순위
+    def convert(t):
+        if t.replace('.', '', 1).isdigit():
+            return (0, float(t))
+        return (1, t.lower())
     
-    alphanum_key = [convert(c) for c in re.split('([0-9.]+)', text) if c]
+    # 정규식으로 숫자와 비숫자를 분리
+    parts = re.split('([0-9.]+)', text)
+    # 빈 문자열 제거 및 튜플 변환
+    alphanum_key = tuple([convert(c) for c in parts if c])
     
-    return (keyword_rank, tuple(alphanum_key)) # 리스트 대신 튜플 반환 (Unhashable 방지)
+    return (keyword_rank, alphanum_key)
 
 def natural_sort_key_simple(s):
     """매입견적용 단순 정렬 (기존 유지)"""
@@ -298,13 +306,12 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (단순화 필터 + 행 삭제 기능)
+# 4. [신규] 업체별 매입단가 시스템 (Unhashable 해결 + 행 삭제 기능)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
     st.markdown("매입처별 단가를 한눈에 비교하고 **필요 없는 행은 체크하여 삭제**하세요.")
     
-    # 세션 상태: 삭제된 행 관리 (키: 튜플(품목, 규격1, 규격2))
     if 'vendor_deleted_rows' not in st.session_state:
         st.session_state.vendor_deleted_rows = set()
 
@@ -312,7 +319,6 @@ def run_vendor_purchase_system():
     if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 파일 없음"); return
 
     try:
-        # 데이터 로드
         df_purch = pd.read_excel(file_path, sheet_name='Purchase_매입단가')
         vendor_col = next((c for c in df_purch.columns if '매입업체' in str(c)), next((c for c in df_purch.columns if '업체' in str(c)), None))
         price_col = next((c for c in df_purch.columns if '매입단가' in str(c)), next((c for c in df_purch.columns if '단가' in str(c) or '가격' in str(c)), None))
@@ -354,7 +360,6 @@ def run_vendor_purchase_system():
             return base_point
 
         df_purch['Sort_Base'] = df_purch['품목'].apply(get_base_score)
-        # 규격2(display_spec) 기준 정렬
         
         # 1차 정렬
         df_sorted = df_purch.sort_values(
@@ -387,7 +392,7 @@ def run_vendor_purchase_system():
         # -----------------------------------------------------------
         # 피벗 및 단위당 계산
         # -----------------------------------------------------------
-        # 인덱스: [Sort_Base, 품목, calc_spec, display_spec, unit_col] (튜플 인덱싱 준비)
+        # 인덱스: [Sort_Base, 품목, calc_spec, display_spec, unit_col]
         df_pivot = df_final.pivot_table(
             index=['Sort_Base', '품목', 'calc_spec', 'display_spec', 'unit_col'],
             columns=vendor_col,
@@ -399,13 +404,11 @@ def run_vendor_purchase_system():
         df_pivot = df_pivot.sort_index(level=['Sort_Base', '품목', 'calc_spec', 'display_spec'], 
                                      key=lambda x: x.map(robust_natural_sort_key) if x.name in ['calc_spec', 'display_spec'] else x)
         
-        # 업체 필터링 및 데이터 없는 행 제거
         valid_cols = [c for c in df_pivot.columns if str(c) in target_vendors]
         df_display = df_pivot[valid_cols]
         df_display = df_display[df_display.replace(0, pd.NA).notna().any(axis=1)]
 
         def apply_unit_calc(row):
-            # Index level: 0:base, 1:품목, 2:calc_spec, 3:display_spec, 4:unit
             item_name = str(row.name[1]); spec = str(row.name[2]); divisor = 1.0
             
             # 계산 로직 (럿셀망 제외)
@@ -422,11 +425,10 @@ def run_vendor_purchase_system():
 
         # 표시용 DF 생성
         df_view = df_calc.reset_index()
-        # 필요한 컬럼만, 이름 변경
         df_view = df_view[['품목', 'calc_spec', 'display_spec'] + valid_cols]
         df_view.rename(columns={'calc_spec': '규격1', 'display_spec': '규격2'}, inplace=True)
         
-        # 삭제 여부 확인을 위한 식별자 컬럼 (튜플)
+        # 삭제 여부 확인을 위한 식별자 컬럼 (튜플 사용 -> Unhashable 방지)
         df_view['row_id'] = list(zip(df_view['품목'], df_view['규격1'], df_view['규격2']))
         
         # 필터링: 삭제된 행 제외
@@ -441,7 +443,7 @@ def run_vendor_purchase_system():
         for rid in df_view['row_id']:
             label = f"{rid[0]} | {rid[1]} | {rid[2]}"
             sort_opts.append(label)
-            key_map[label] = rid # 튜플 키
+            key_map[label] = rid
             
         c_sort1, c_sort2 = st.columns([2, 1])
         with c_sort1: s_opt = st.selectbox("📊 열 정렬 기준 품목 선택", sort_opts)
@@ -470,17 +472,14 @@ def run_vendor_purchase_system():
                 st.toast(f"✅ 정렬 완료: {s_opt}")
 
         # 최종 출력용 DF 구성
-        # 1. 삭제 컬럼 추가 (data_editor용)
-        # 2. 인덱스는 row_id로 설정하여 변경 추적
         df_final_out = df_view[['품목', '규격1', '규격2'] + final_vendors].copy()
         df_final_out.insert(0, "삭제", False) # 체크박스 컬럼
-        # row_id를 인덱스로 설정하면 data_editor가 인덱스를 키로 사용함
+        # row_id를 인덱스로 설정
         df_final_out.index = df_view['row_id']
         
         st.subheader("📋 업체별 매입단가표 (단위당)")
 
         # Data Editor 표시
-        # 체크박스 변경 시 rerun -> 위에서 필터링됨
         edited_df = st.data_editor(
             df_final_out,
             use_container_width=True,
@@ -490,12 +489,11 @@ def run_vendor_purchase_system():
                 "규격2": st.column_config.TextColumn("규격2", disabled=True),
                 "품목": st.column_config.TextColumn("품목", disabled=True),
             },
-            disabled=final_vendors, # 업체 데이터 수정 불가
+            disabled=final_vendors, 
             hide_index=True 
         )
         
         # 삭제된 행 감지 및 세션 업데이트
-        # edited_df에서 삭제가 True인 행의 인덱스(row_id 튜플)를 찾음
         deleted_keys = edited_df[edited_df['삭제']].index.tolist()
         
         if deleted_keys:
