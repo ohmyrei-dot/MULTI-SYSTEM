@@ -20,7 +20,6 @@ def robust_natural_sort_key(s):
     """
     [강력한 Natural Sort]
     문자열과 숫자가 섞여 있어도 에러 없이(TypeError 방지) 비교 가능하도록 변환
-    반환값: (키워드순위, ((타입순위, 값), (타입순위, 값)...)) 형태의 튜플
     """
     text = str(s).strip()
     
@@ -29,20 +28,14 @@ def robust_natural_sort_key(s):
     elif '가공' in text: keyword_rank = 2
     else: keyword_rank = 1
 
-    # 2. 숫자/문자 분리 및 타입핑
-    # (0, 숫자) : 숫자가 우선
-    # (1, 문자) : 문자는 후순위
-    def convert(t):
-        if t.replace('.', '', 1).isdigit():
-            return (0, float(t))
-        return (1, t.lower())
+    # 2. 숫자/문자 분리
+    def convert(text):
+        return float(text) if text.replace('.', '', 1).isdigit() else text.lower()
     
-    # 정규식으로 숫자와 비숫자를 분리
-    parts = re.split('([0-9.]+)', text)
-    # 빈 문자열 제거 및 튜플 변환
-    alphanum_key = tuple([convert(c) for c in parts if c])
+    alphanum_key = [convert(c) for c in re.split('([0-9.]+)', text) if c]
     
-    return (keyword_rank, alphanum_key)
+    # 튜플로 변환하여 반환 (리스트는 비교 시 에러 가능성 있음)
+    return (keyword_rank, tuple(alphanum_key))
 
 def natural_sort_key_simple(s):
     """매입견적용 단순 정렬 (기존 유지)"""
@@ -200,7 +193,7 @@ def run_purchase_estimate_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (기존 로직 유지)
+# 3. 매출 단가 조회 시스템 (기존 기능 유지)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -306,7 +299,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (Unhashable 해결 + 행 삭제 기능)
+# 4. [신규] 업체별 매입단가 시스템 (Level not found 해결 + 행 삭제 구현)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -319,6 +312,7 @@ def run_vendor_purchase_system():
     if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 파일 없음"); return
 
     try:
+        # 데이터 로드
         df_purch = pd.read_excel(file_path, sheet_name='Purchase_매입단가')
         vendor_col = next((c for c in df_purch.columns if '매입업체' in str(c)), next((c for c in df_purch.columns if '업체' in str(c)), None))
         price_col = next((c for c in df_purch.columns if '매입단가' in str(c)), next((c for c in df_purch.columns if '단가' in str(c) or '가격' in str(c)), None))
@@ -424,11 +418,13 @@ def run_vendor_purchase_system():
         df_calc = df_display.apply(apply_unit_calc, axis=1)
 
         # 표시용 DF 생성
+        # 레벨 이름이 사라지는 문제 방지: reset_index 시 level 이름 사용
         df_view = df_calc.reset_index()
+        # 필요한 컬럼만, 이름 변경
         df_view = df_view[['품목', 'calc_spec', 'display_spec'] + valid_cols]
         df_view.rename(columns={'calc_spec': '규격1', 'display_spec': '규격2'}, inplace=True)
         
-        # 삭제 여부 확인을 위한 식별자 컬럼 (튜플 사용 -> Unhashable 방지)
+        # 삭제 여부 확인을 위한 식별자 컬럼 (튜플 사용)
         df_view['row_id'] = list(zip(df_view['품목'], df_view['규격1'], df_view['규격2']))
         
         # 필터링: 삭제된 행 제외
@@ -472,6 +468,8 @@ def run_vendor_purchase_system():
                 st.toast(f"✅ 정렬 완료: {s_opt}")
 
         # 최종 출력용 DF 구성
+        # 1. 삭제 컬럼 추가 (data_editor용)
+        # 2. 인덱스는 row_id로 설정하여 변경 추적
         df_final_out = df_view[['품목', '규격1', '규격2'] + final_vendors].copy()
         df_final_out.insert(0, "삭제", False) # 체크박스 컬럼
         # row_id를 인덱스로 설정
@@ -480,6 +478,7 @@ def run_vendor_purchase_system():
         st.subheader("📋 업체별 매입단가표 (단위당)")
 
         # Data Editor 표시
+        # key 설정하여 리렌더링 문제 방지
         edited_df = st.data_editor(
             df_final_out,
             use_container_width=True,
@@ -490,7 +489,8 @@ def run_vendor_purchase_system():
                 "품목": st.column_config.TextColumn("품목", disabled=True),
             },
             disabled=final_vendors, 
-            hide_index=True 
+            hide_index=True,
+            key="vendor_editor"
         )
         
         # 삭제된 행 감지 및 세션 업데이트
