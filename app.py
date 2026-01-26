@@ -20,11 +20,11 @@ def robust_natural_sort_key(s):
     """
     [강력한 Natural Sort]
     문자열과 숫자가 섞여 있어도 에러 없이(TypeError 방지) 비교 가능하도록 변환
-    예: 2m -> (..., 2.0, 'm'), 10m -> (..., 10.0, 'm')
+    모든 요소를 문자열로 변환하거나, 타입별 우선순위를 두어 비교
     """
     text = str(s).strip()
     
-    # 1. 키워드 우선순위: KS(0) > 일반(1) > 가공(2)
+    # 1. 키워드 우선순위
     if 'KS' in text: keyword_rank = 0
     elif '가공' in text: keyword_rank = 2
     else: keyword_rank = 1
@@ -64,7 +64,7 @@ def natural_sort_key_simple(s):
     return (num_val, k_rank, text)
 
 # -----------------------------------------------------------------------------
-# 2. 매입 견적 비교 시스템 (기존 로직 절대 유지)
+# 2. 매입 견적 비교 시스템 (기존 기능 유지)
 # -----------------------------------------------------------------------------
 def run_purchase_estimate_system():
     st.markdown("""<style>h1 { word-break: keep-all; }</style>""", unsafe_allow_html=True)
@@ -302,11 +302,11 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (심플 & 강력 버전)
+# 4. [신규] 업체별 매입단가 시스템 (에러 방지형 완전 재작성)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
-    st.markdown("매입처별 단가를 한눈에 비교하고 **필요 없는 행은 체크하여 삭제**하세요.")
+    st.markdown("매입처별 단가를 한눈에 비교하고 최저가 업체를 확인합니다.")
     
     if 'vendor_deleted_rows' not in st.session_state:
         st.session_state.vendor_deleted_rows = set()
@@ -333,9 +333,9 @@ def run_vendor_purchase_system():
         if '단위' not in df_purch.columns: df_purch['단위'] = ""
         
         df_purch = df_purch.rename(columns=col_map)
-        df_purch['calc_spec'] = df_purch['calc_spec'].fillna("")
-        df_purch['display_spec'] = df_purch['display_spec'].fillna("")
-        df_purch['단위'] = df_purch['단위'].fillna("")
+        df_purch['calc_spec'] = df_purch['calc_spec'].fillna("").astype(str)
+        df_purch['display_spec'] = df_purch['display_spec'].fillna("").astype(str)
+        df_purch['단위'] = df_purch['단위'].fillna("").astype(str)
 
         # 업체 컬럼 식별
         fixed_cols = ['품목', 'calc_spec', 'display_spec', '단위', '비고', '비고 1']
@@ -353,35 +353,33 @@ def run_vendor_purchase_system():
             if '와이어클립' in n: return 5
             return 6
 
-        # 10m가 2m 뒤로 가는 Natural Sort (문자열 비교 방지)
-        # 규격2(display_spec) 기준 정렬
-        
         df_purch['Sort_Base'] = df_purch['품목'].apply(get_base_score)
         
-        # 1차 정렬: 품목 -> 규격2
-        # robust_natural_sort_key 사용
+        # 1차 정렬 (Natural Sort Key 적용)
         df_sorted = df_purch.sort_values(
-            by=['Sort_Base', '품목', 'display_spec'],
-            key=lambda x: x.map(robust_natural_sort_key) if x.name == 'display_spec' else x,
+            by=['Sort_Base', '품목', 'calc_spec', 'display_spec'],
+            key=lambda x: x.map(robust_natural_sort_key) if x.name in ['calc_spec', 'display_spec'] else x,
             ascending=True
         )
 
-        # 3. 데이터 필터 (품목, 규격1, 규격2)
+        # 3. 데이터 필터
         st.subheader("🔍 데이터 필터")
-        all_items = df_sorted['품목'].unique().tolist()
-        
+        all_vendors = sorted([str(v) for v in df_sorted[vendor_col].dropna().unique()])
+        sel_vendors = st.multiselect("🏢 매입처 선택", ['전체 선택']+all_vendors, default=[])
+        target_vendors = all_vendors if not sel_vendors or '전체 선택' in sel_vendors else sel_vendors
+
         c1, c2, c3 = st.columns(3)
+        all_items = df_sorted['품목'].unique().tolist()
         with c1: sel_items = st.multiselect("📦 품목 선택", ['전체 선택']+all_items, default=[])
-        if not sel_items or '전체 선택' in sel_items: df_step1 = df_sorted
-        else: df_step1 = df_sorted[df_sorted['품목'].isin(sel_items)]
+        df_s1 = df_sorted if not sel_items or '전체 선택' in sel_items else df_sorted[df_sorted['품목'].isin(sel_items)]
         
-        all_s1 = sorted(df_step1['calc_spec'].unique().tolist(), key=robust_natural_sort_key)
+        all_s1 = sorted(df_s1['calc_spec'].unique().tolist(), key=robust_natural_sort_key)
         with c2: sel_s1 = st.multiselect("📏 규격1 선택", ['전체 선택']+all_s1, default=[])
-        df_step2 = df_step1 if not sel_s1 or '전체 선택' in sel_s1 else df_step1[df_step1['calc_spec'].isin(sel_s1)]
+        df_s2 = df_s1 if not sel_s1 or '전체 선택' in sel_s1 else df_s1[df_s1['calc_spec'].isin(sel_s1)]
         
-        all_s2 = sorted(df_step2['display_spec'].unique().tolist(), key=robust_natural_sort_key)
+        all_s2 = sorted(df_s2['display_spec'].unique().tolist(), key=robust_natural_sort_key)
         with c3: sel_s2 = st.multiselect("📏 규격2 선택", ['전체 선택']+all_s2, default=[])
-        df_filtered = df_step2 if not sel_s2 or '전체 선택' in sel_s2 else df_step2[df_step2['display_spec'].isin(sel_s2)]
+        df_filtered = df_s2 if not sel_s2 or '전체 선택' in sel_s2 else df_s2[df_s2['display_spec'].isin(sel_s2)]
 
         # 4. 단위당 단가 계산 (4개 품목만)
         def calculate_unit_price(row):
@@ -414,21 +412,33 @@ def run_vendor_purchase_system():
 
         df_calc = df_filtered.apply(calculate_unit_price, axis=1)
 
-        # 5. 표시용 데이터 구성 (인덱스 없음, 펼침)
+        # 5. 피벗 및 펼침 구조
+        # 이미 Wide Format이므로 별도 Pivot 불필요. 단, 중복 제거 및 구조 통일을 위해 GroupBy first 사용
+        df_view = df_calc.groupby(['Sort_Base', '품목', 'calc_spec', 'display_spec'], sort=False)[vendor_cols].first().reset_index()
+        
+        # 정렬 재적용 (GroupBy 후 순서 보장)
+        df_view = df_view.sort_values(
+            by=['Sort_Base', '품목', 'calc_spec', 'display_spec'],
+            key=lambda x: x.map(robust_natural_sort_key) if x.name in ['calc_spec', 'display_spec'] else x,
+            ascending=True
+        )
+
+        df_view = df_view[['품목', 'calc_spec', 'display_spec'] + target_vendors]
+        df_view.rename(columns={'calc_spec': '규격1', 'display_spec': '규격2'}, inplace=True)
+        
         # 식별자 생성 (삭제용) - 튜플 사용
-        df_calc['row_id'] = list(zip(df_calc['품목'], df_calc['calc_spec'], df_calc['display_spec']))
+        df_view['row_id'] = list(zip(df_view['품목'], df_view['규격1'], df_view['규격2']))
         
         # 삭제된 행 제외
-        df_view = df_calc[~df_calc['row_id'].isin(st.session_state.vendor_deleted_rows)].copy()
+        df_view = df_view[~df_view['row_id'].isin(st.session_state.vendor_deleted_rows)].copy()
 
         # 6. 열 정렬 기능 (가격순)
         st.divider()
         sort_opts = ["선택 안함"]
         key_map = {}
         
-        # 필터링된 결과 내에서 옵션 생성 (튜플 키 사용)
         for _, row in df_view.iterrows():
-            label = f"{row['품목']} | {row['calc_spec']} | {row['display_spec']}"
+            label = f"{row['품목']} | {row['규격1']} | {row['규격2']}"
             sort_opts.append(label)
             key_map[label] = row['row_id']
             
@@ -436,7 +446,7 @@ def run_vendor_purchase_system():
         with c_sort1: 
             s_opt = st.selectbox("📊 열 정렬 기준 (가격 낮은 순)", sort_opts)
         
-        final_vendors = vendor_cols
+        final_vendors = target_vendors
         
         if s_opt != "선택 안함" and s_opt in key_map:
             t_key = key_map[s_opt]
@@ -444,22 +454,19 @@ def run_vendor_purchase_system():
             if not t_rows.empty:
                 t_row = t_rows.iloc[0]
                 
-                # 정렬 키 함수
                 def sort_k(v):
                     val = t_row.get(v)
+                    # 문자열/NaN/0 등은 맨 뒤(inf)로
                     if pd.isna(val) or val == 0 or val == "":
                         return float('inf')
-                    return val
+                    return float(val) # float 변환하여 비교
                 
-                # 낮은 가격순
-                final_vendors = sorted(vendor_cols, key=sort_k)
+                final_vendors = sorted(target_vendors, key=sort_k)
                 st.toast(f"✅ 최저가 정렬 완료: {s_opt}")
 
-        # 최종 출력 컬럼: 삭제, 품목, 규격1, 규격2, 업체들...
-        df_final_out = df_view[['품목', 'calc_spec', 'display_spec'] + final_vendors].copy()
-        df_final_out.rename(columns={'calc_spec': '규격1', 'display_spec': '규격2'}, inplace=True)
+        # 최종 출력 컬럼
+        df_final_out = df_view[['품목', '규격1', '규격2'] + final_vendors].copy()
         df_final_out.insert(0, "삭제", False)
-        # 인덱스를 row_id로 설정
         df_final_out.index = df_view['row_id']
 
         st.subheader("📋 업체별 매입단가표 (단위당)")
@@ -473,16 +480,14 @@ def run_vendor_purchase_system():
                 "규격1": st.column_config.TextColumn("규격1", width="medium", disabled=True),
                 "규격2": st.column_config.TextColumn("규격2", width="medium", disabled=True),
             },
-            disabled=final_vendors, # 업체 데이터 수정 불가
+            disabled=final_vendors,
             hide_index=True,
-            key="vendor_editor_simple_v2"
+            key="vendor_pivot_editor"
         )
         
-        # 삭제 처리
         deleted_keys = edited_df[edited_df['삭제']].index.tolist()
         if deleted_keys:
-            for k in deleted_keys:
-                st.session_state.vendor_deleted_rows.add(k)
+            for k in deleted_keys: st.session_state.vendor_deleted_rows.add(k)
             st.rerun()
             
         if len(st.session_state.vendor_deleted_rows) > 0:
