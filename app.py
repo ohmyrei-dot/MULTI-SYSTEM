@@ -20,7 +20,6 @@ def robust_natural_sort_key(s):
     """
     [강력한 Natural Sort]
     문자열과 숫자가 섞여 있어도 에러 없이(TypeError 방지) 비교 가능하도록 변환
-    예: 2m -> (..., 2.0, 'm'), 10m -> (..., 10.0, 'm')
     """
     text = str(s).strip()
     
@@ -268,7 +267,9 @@ def run_sales_system():
             sort_opts = ["선택 안함"]
             row_map = {}
             for idx in df_display.index:
-                label = f"{idx[0]} ({idx[1]})" if price_mode=="단위당 단가" else f"{idx[0]} ({idx[2]})"
+                label = str(idx)
+                if isinstance(idx, tuple):
+                    label = f"{idx[0]} ({idx[1]})" if price_mode=="단위당 단가" else f"{idx[0]} ({idx[2]})"
                 sort_opts.append(label); row_map[label] = idx
 
             cs1, cs2 = st.columns([2, 1])
@@ -380,7 +381,6 @@ def run_vendor_purchase_system():
         df_filtered = df_s2 if not sel_s2 or '전체 선택' in sel_s2 else df_s2[df_s2['display_spec'].isin(sel_s2)]
 
         # 2단계: 최종 출력 항목 선택 (핀셋) - 튜플 사용
-        # drop_duplicates 후 iterrows 또는 itertuples를 사용하여 튜플 키 생성
         unique_combinations = df_filtered[['품목', 'calc_spec', 'display_spec']].drop_duplicates()
         
         options_map = {}
@@ -389,7 +389,6 @@ def run_vendor_purchase_system():
         # DataFrame 순회하며 튜플 키 생성 (Unhashable list 방지)
         for row in unique_combinations.itertuples(index=False):
             # row는 (품목, calc_spec, display_spec) 형태의 튜플과 유사
-            # 명시적으로 튜플 생성
             key = (row.품목, row.calc_spec, row.display_spec)
             label = f"{row.품목} | {row.calc_spec} | {row.display_spec}"
             options_list.append(label)
@@ -426,12 +425,17 @@ def run_vendor_purchase_system():
 
         def apply_unit_calc(row):
             item_name = str(row.name[1]); spec = str(row.name[2]); divisor = 1.0
+            # 1. 안전망, 멀티망 (럿셀망 제외)
             if any(x in item_name for x in ['안전망', '멀티망']):
                 nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]; divisor = np.prod(nums) if nums else 1.0
+            # 2. 와이어로프
             elif '와이어로프' in item_name:
                 m = re.search(r'\*\s*(\d+(?:\.\d+)?)', spec); divisor = float(m.group(1)) if m else 1.0
+            # 3. 와이어클립
             elif '와이어클립' in item_name:
                 m = re.search(r'(\d+(?:\.\d+)?)\s*pcs', spec); divisor = float(m.group(1)) if m else 1.0
+            
+            # 럿셀망 등은 계산 X
             return row.apply(lambda x: x / divisor if pd.notnull(x) and isinstance(x, (int, float)) and divisor != 0 else x)
 
         df_calc = df_display.apply(apply_unit_calc, axis=1)
@@ -472,7 +476,10 @@ def run_vendor_purchase_system():
                     return val
                 
                 is_rev = "높은" in s_ord
+                # 높은 순: 값 있는 건 내림차순, 없는 건(inf) 맨 뒤로
+                # 낮은 순: 값 있는 건 오름차순, 없는 건(inf) 맨 뒤로
                 if is_rev:
+                    # 값이 있으면 -val (내림차순 효과), 없으면 inf (맨뒤)
                     final_vendors = sorted(valid_vendors, key=lambda v: -sort_k(v) if sort_k(v) != float('inf') else float('inf'))
                 else:
                     final_vendors = sorted(valid_vendors, key=sort_k)
