@@ -18,21 +18,22 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 def natural_sort_key(s):
     """
-    문자열 내의 숫자를 인식하여 정렬하는 키 함수 (6mm -> 10mm 정렬용)
+    문자열 내의 숫자를 인식하여 정렬하는 키 함수 (2mm -> 10mm 정렬용)
+    텍스트를 (숫자, 문자) 튜플 리스트로 변환하여 비교
     """
     text = str(s).strip()
-    match = re.search(r'(\d+(\.\d+)?)', text)
-    if match:
-        num_val = float(match.group(1))
-    else:
-        num_val = float('inf')
     
-    # 키워드 우선순위: KS(0) > 일반(1) > 가공(2)
+    # 1. 키워드 우선순위 (KS > 일반 > 가공) - 보조 정렬 기준
     if 'KS' in text: keyword_rank = 0
     elif '가공' in text: keyword_rank = 2
     else: keyword_rank = 1
-        
-    return (num_val, keyword_rank, text)
+
+    # 2. 숫자/문자 분리 (Natural Sort 핵심)
+    # 예: "10m*50" -> ['', 10.0, 'm*', 50.0, '']
+    convert = lambda text: float(text) if text.isdigit() or text.replace('.', '', 1).isdigit() else text.lower()
+    alphanum_key = [convert(c) for c in re.split('([0-9.]+)', text)]
+    
+    return (keyword_rank, alphanum_key)
 
 def extract_number_safe(text):
     """
@@ -535,7 +536,7 @@ def run_sales_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (펼침 구조, 계산 및 정렬 완벽 적용)
+# 4. [신규] 업체별 매입단가 시스템 (규격1, 2 펼침 구조 & 정렬 고정)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -547,7 +548,7 @@ def run_vendor_purchase_system():
         return
 
     try:
-        # 1. 데이터 로드
+        # 1. 데이터 로드 및 컬럼 매칭
         df_purch = pd.read_excel(file_path, sheet_name='Purchase_매입단가')
         
         vendor_col = next((c for c in df_purch.columns if '매입업체' in str(c)), None)
@@ -560,38 +561,42 @@ def run_vendor_purchase_system():
             st.error("매입 데이터에서 '매입업체' 또는 '매입단가' 컬럼을 찾을 수 없습니다.")
             return
 
-        # 컬럼 매핑
+        # 컬럼 정규화
         col_map = {}
-        if '규격1' in df_purch.columns: col_map['규격1'] = '규격1'
-        elif '규격' in df_purch.columns: col_map['규격'] = '규격1'
-        else: df_purch['규격1'] = ""
+        if '규격1' in df_purch.columns: col_map['규격1'] = 'calc_spec'
+        elif '규격' in df_purch.columns: col_map['규격'] = 'calc_spec'
+        else: df_purch['calc_spec'] = ""
             
-        if '규격2' in df_purch.columns: col_map['규격2'] = '규격2'
-        else: df_purch['규격2'] = df_purch.get('규격1', "")
+        if '규격2' in df_purch.columns: col_map['규격2'] = 'display_spec'
+        else: df_purch['display_spec'] = df_purch.get('calc_spec', "")
             
-        # note_col은 더 이상 표시하지 않지만, 데이터 정렬 등 내부 로직을 위해 유지 가능 (여기선 제거)
-        if '단위' in df_purch.columns: col_map['단위'] = '단위'
-        else: df_purch['단위'] = ""
+        note_col = '비고' if '비고' in df_purch.columns else '비고 1'
+        if note_col in df_purch.columns: col_map[note_col] = 'note_col'
+        else: df_purch['note_col'] = ""
+            
+        if '단위' in df_purch.columns: col_map['단위'] = 'unit_col'
+        else: df_purch['unit_col'] = ""
             
         df_purch = df_purch.rename(columns=col_map)
         
         # 결측치 처리
-        df_purch['규격1'] = df_purch['규격1'].fillna("")
-        df_purch['규격2'] = df_purch['규격2'].fillna("")
-        df_purch['단위'] = df_purch['단위'].fillna("")
+        df_purch['calc_spec'] = df_purch['calc_spec'].fillna("")
+        df_purch['display_spec'] = df_purch['display_spec'].fillna("")
+        df_purch['note_col'] = df_purch.get('note_col', "").fillna("")
+        df_purch['unit_col'] = df_purch.get('unit_col', "").fillna("")
         
         # -----------------------------------------------------------
         # [핵심] 강제 정렬 점수 부여 (대그룹 순위)
         # -----------------------------------------------------------
         def get_base_score(name):
             n = str(name).strip()
-            if '안전망' in n: return 10
-            if '멀티망' in n: return 20
-            if '럿셀망' in n: return 30
-            if 'PP로프' in n: return 40
-            if '와이어로프' in n: return 50
-            if '와이어클립' in n: return 60
-            return 70 # 기타
+            if '안전망' in n: return 0
+            if '멀티망' in n: return 1
+            if '럿셀망' in n: return 2
+            if 'PP로프' in n: return 3
+            if '와이어로프' in n: return 4
+            if '와이어클립' in n: return 5
+            return 6 # 기타
 
         def get_spec_score(spec):
             s = str(spec).strip()
@@ -607,7 +612,7 @@ def run_vendor_purchase_system():
             return base_point
 
         df_purch['Sort_Base'] = df_purch['품목'].apply(get_base_score)
-        df_purch['Sort_Spec'] = df_purch['규격2'].apply(get_spec_score)
+        df_purch['Sort_Spec'] = df_purch['display_spec'].apply(get_spec_score) # 규격2 기준
         
         # 정렬 실행
         df_sorted = df_purch.sort_values(
@@ -630,28 +635,27 @@ def run_vendor_purchase_system():
         else:
             target_vendors = selected_vendors_raw
 
-        fc1, fc2 = st.columns(2)
+        fc1, fc2, fc3 = st.columns(3)
         all_items = df_sorted['품목'].unique().tolist()
         with fc1: sel_items = st.multiselect("📦 품목", ['전체 선택']+all_items, default=[])
         if not sel_items or '전체 선택' in sel_items: df_step1 = df_sorted
         else: df_step1 = df_sorted[df_sorted['품목'].isin(sel_items)]
         
         # 필터: 규격2 기준
-        all_specs2 = df_step1['규격2'].unique().tolist()
+        all_specs2 = df_step1['display_spec'].unique().tolist()
         # 정렬
         all_specs2 = sorted(all_specs2, key=lambda x: get_spec_score(x))
         
         with fc2: sel_specs2 = st.multiselect("📏 규격2", ['전체 선택']+all_specs2, default=[])
         if not sel_specs2 or '전체 선택' in sel_specs2: df_final = df_step1
-        else: df_final = df_step1[df_step1['규격2'].isin(sel_specs2)]
+        else: df_final = df_step1[df_step1['display_spec'].isin(sel_specs2)]
         
         # -----------------------------------------------------------
         # 피벗 및 단위당 계산 (펼침 구조)
         # -----------------------------------------------------------
-        # Pivot: Index=['Sort_Base', 'Sort_Spec', '품목', '규격1', '규격2'] -> 규격1 포함!
-        # 단위는 Index에 포함하지 않아도 되나, 명확성을 위해 포함 가능 (여기선 3개 요구사항 준수)
+        # Pivot: Index=['Sort_Base', 'Sort_Spec', '품목', 'calc_spec', 'display_spec'] -> 3단 인덱스
         df_pivot = df_final.pivot_table(
-            index=['Sort_Base', 'Sort_Spec', '품목', '규격1', '규격2'],
+            index=['Sort_Base', 'Sort_Spec', '품목', 'calc_spec', 'display_spec'],
             columns=vendor_col,
             values=price_col,
             aggfunc='first'
@@ -668,7 +672,7 @@ def run_vendor_purchase_system():
 
         def apply_unit_calc(row):
             item_name = str(row.name[2]) # 품목
-            spec = str(row.name[3]) # 규격1
+            spec = str(row.name[3]) # calc_spec (규격1)
             divisor = 1.0
             
             # 안전망, 멀티망 (럿셀망 제외)
@@ -694,8 +698,12 @@ def run_vendor_purchase_system():
 
         df_calc = df_display.apply(apply_unit_calc, axis=1)
         
-        # 인덱스 정리 (Sort 컬럼 제거, [품목, 규격1, 규격2] 유지)
-        df_final_view = df_calc.reset_index().set_index(['품목', '규격1', '규격2'])[valid_cols]
+        # 인덱스 정리: [품목, 규격1, 규격2] (Sort 컬럼 제거)
+        # 규격1: calc_spec, 규격2: display_spec
+        df_final_view = df_calc.reset_index().set_index(['품목', 'calc_spec', 'display_spec'])[valid_cols]
+        
+        # 이름 변경: [품목, 규격1, 규격2]
+        df_final_view.index.names = ['품목', '규격1', '규격2']
 
         # -----------------------------------------------------------
         # 품목 기준 열 정렬 (가격순)
@@ -705,6 +713,7 @@ def run_vendor_purchase_system():
         sort_opts = ["선택 안함"]
         row_map = {}
         for idx in df_final_view.index:
+            # 3단 인덱스: idx[0]=품목, idx[1]=규격1, idx[2]=규격2
             label = f"{idx[0]} | {idx[1]} | {idx[2]}"
             sort_opts.append(label)
             row_map[label] = idx
