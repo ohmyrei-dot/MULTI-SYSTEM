@@ -380,15 +380,17 @@ def run_vendor_purchase_system():
         with c3: sel_s2 = st.multiselect("📏 규격2 (표시용)", ['전체 선택']+all_s2, default=[])
         df_filtered = df_s2 if not sel_s2 or '전체 선택' in sel_s2 else df_s2[df_s2['display_spec'].isin(sel_s2)]
 
-        # 2단계: 최종 출력 항목 선택 (핀셋) - 튜플 사용
+        # 2단계: 최종 출력 항목 선택 (핀셋) - 튜플 사용 (Unhashable fix)
+        # 중요: DataFrame을 list로 변환할 때 튜플로 만들어야 set/key 사용 가능
         unique_combinations = df_filtered[['품목', 'calc_spec', 'display_spec']].drop_duplicates()
         
         options_map = {}
         options_list = []
         
-        # DataFrame 순회하며 튜플 키 생성 (Unhashable list 방지)
+        # DataFrame 순회하며 튜플 키 생성
         for row in unique_combinations.itertuples(index=False):
-            # row는 (품목, calc_spec, display_spec) 형태의 튜플과 유사
+            # row는 (품목, calc_spec, display_spec) 형태
+            # 명시적으로 튜플 생성하여 키로 사용
             key = (row.품목, row.calc_spec, row.display_spec)
             label = f"{row.품목} | {row.calc_spec} | {row.display_spec}"
             options_list.append(label)
@@ -397,10 +399,10 @@ def run_vendor_purchase_system():
         final_selection = st.multiselect("🎯 최종 출력 항목 선택 (비워두면 위 필터 결과 전체 표시)", options_list, default=[])
         
         if final_selection:
-            selected_keys = [options_map[opt] for opt in final_selection] # 리스트 안의 튜플들
+            # 선택된 키(튜플) 리스트
+            selected_keys = [options_map[opt] for opt in final_selection]
             
-            # DataFrame 필터링: Multi-column 매칭
-            # 임시 컬럼에 튜플을 넣어 매칭 (리스트가 아닌 튜플이어야 함)
+            # DataFrame 필터링: 임시 튜플 컬럼 생성 후 isin 매칭
             df_filtered['temp_key'] = list(zip(df_filtered['품목'], df_filtered['calc_spec'], df_filtered['display_spec']))
             df_final = df_filtered[df_filtered['temp_key'].isin(selected_keys)].drop(columns=['temp_key'])
         else:
@@ -435,7 +437,6 @@ def run_vendor_purchase_system():
             elif '와이어클립' in item_name:
                 m = re.search(r'(\d+(?:\.\d+)?)\s*pcs', spec); divisor = float(m.group(1)) if m else 1.0
             
-            # 럿셀망 등은 계산 X
             return row.apply(lambda x: x / divisor if pd.notnull(x) and isinstance(x, (int, float)) and divisor != 0 else x)
 
         df_calc = df_display.apply(apply_unit_calc, axis=1)
@@ -452,7 +453,7 @@ def run_vendor_purchase_system():
         sort_opts = ["선택 안함"]
         row_map = {}
         for idx in df_final_view.index:
-            # 3단 인덱스 튜플
+            # 3단 인덱스 (튜플)
             label = f"{idx[0]} | {idx[1]} | {idx[2]}"
             sort_opts.append(label)
             row_map[label] = idx
@@ -476,10 +477,7 @@ def run_vendor_purchase_system():
                     return val
                 
                 is_rev = "높은" in s_ord
-                # 높은 순: 값 있는 건 내림차순, 없는 건(inf) 맨 뒤로
-                # 낮은 순: 값 있는 건 오름차순, 없는 건(inf) 맨 뒤로
                 if is_rev:
-                    # 값이 있으면 -val (내림차순 효과), 없으면 inf (맨뒤)
                     final_vendors = sorted(valid_vendors, key=lambda v: -sort_k(v) if sort_k(v) != float('inf') else float('inf'))
                 else:
                     final_vendors = sorted(valid_vendors, key=sort_k)
