@@ -17,31 +17,19 @@ st.set_page_config(
 # [Helper] 공통 정렬 및 유틸리티 함수
 # -----------------------------------------------------------------------------
 def robust_natural_sort_key(s):
-    """
-    [강력한 Natural Sort]
-    문자열과 숫자가 섞여 있어도 에러 없이(TypeError 방지) 비교 가능하도록 변환
-    """
     text = str(s).strip()
-    
-    # 1. 키워드 우선순위: KS(0) > 일반(1) > 가공(2)
     if 'KS' in text: keyword_rank = 0
     elif '가공' in text: keyword_rank = 2
     else: keyword_rank = 1
-
-    # 2. 숫자/문자 분리
     def convert(text):
         return float(text) if text.replace('.', '', 1).isdigit() else text.lower()
-    
     alphanum_key = [convert(c) for c in re.split('([0-9.]+)', text) if c]
-    
     return (keyword_rank, tuple(alphanum_key))
 
 def natural_sort_key_simple(s):
-    """매입견적용 단순 정렬 (기존 유지)"""
     text = str(s).strip()
     match = re.search(r'(\d+(\.\d+)?)', text)
     num_val = float(match.group(1)) if match else float('inf')
-    
     if 'KS' in text: k_rank = 0
     elif '가공' in text: k_rank = 2
     else: k_rank = 1
@@ -298,11 +286,11 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (표 레이아웃 최적화)
+# 4. [신규] 업체별 매입단가 조회 (멀티 업체 가로 비교 + 수동 추가)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
-    st.markdown("매입처별 단가를 가로로 비교하고 목록을 작성하세요.")
+    st.markdown("매입처별 단가를 한눈에 비교하고 목록을 작성하세요.")
 
     if 'vendor_cart_simple' not in st.session_state:
         st.session_state.vendor_cart_simple = []
@@ -315,6 +303,8 @@ def run_vendor_purchase_system():
     try:
         # 데이터 로드
         df_purch = pd.read_excel(file_path, sheet_name='Purchase_매입단가')
+        
+        # 컬럼 매칭
         vendor_col = next((c for c in df_purch.columns if '매입업체' in str(c)), next((c for c in df_purch.columns if '업체' in str(c)), None))
         price_col = next((c for c in df_purch.columns if '매입단가' in str(c)), next((c for c in df_purch.columns if '단가' in str(c) or '가격' in str(c)), None))
         if not vendor_col or not price_col: st.error("필수 컬럼 없음"); return
@@ -325,17 +315,29 @@ def run_vendor_purchase_system():
         else: df_purch['calc_spec'] = ""
         if '규격2' in df_purch.columns: col_map['규격2'] = 'display_spec'
         else: df_purch['display_spec'] = df_purch.get('calc_spec', "")
-        
+        if '단위' in df_purch.columns: col_map['단위'] = 'unit_col'
+        else: df_purch['unit_col'] = ""
         df_purch = df_purch.rename(columns=col_map)
+        
         df_purch['calc_spec'] = df_purch['calc_spec'].fillna("").astype(str)
         df_purch['display_spec'] = df_purch['display_spec'].fillna("").astype(str)
         df_purch['품목'] = df_purch['품목'].fillna("").astype(str)
-
-        fixed_cols = ['품목', 'calc_spec', 'display_spec', '단위', '비고', '비고 1']
-        all_cols = df_purch.columns.tolist()
-        vendor_cols = [c for c in all_cols if c not in fixed_cols and not str(c).startswith('Unnamed')]
         
-        # 정렬
+        # 1. 업체 선택 (실제 데이터 기반)
+        st.subheader("1️⃣ 업체 선택")
+        all_vendors = sorted(df_purch[vendor_col].dropna().unique().astype(str))
+        
+        # 기본 선택
+        defaults = ['가온건설', '신영산업안전', '토우코리아']
+        default_vendors = [v for v in defaults if v in all_vendors]
+        
+        sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (가로 열)", ['전체 선택']+all_vendors, default=default_vendors)
+        target_vendors = all_vendors if not sel_vendors or '전체 선택' in sel_vendors else sel_vendors
+
+        # 2. 품목 추가
+        st.subheader("2️⃣ 품목 추가")
+        
+        # 정렬 점수
         def get_base_score(name):
             n = str(name).strip()
             if '안전망' in n: return 0
@@ -345,56 +347,66 @@ def run_vendor_purchase_system():
             if '와이어로프' in n: return 4
             if '와이어클립' in n: return 5
             return 6
-            
         df_purch['Sort_Base'] = df_purch['품목'].apply(get_base_score)
+        
         df_sorted = df_purch.sort_values(
             by=['Sort_Base', '품목', 'calc_spec', 'display_spec'],
             key=lambda x: x.map(robust_natural_sort_key) if x.name in ['calc_spec', 'display_spec'] else x,
             ascending=True
         )
 
-        st.subheader("1️⃣ 업체 선택")
-        all_vendors = sorted(vendor_cols)
-        defaults = ['가온건설', '신영산업안전', '토우코리아']
-        default_vendors = [v for v in defaults if v in all_vendors]
-        sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (가로 열)", ['전체 선택']+all_vendors, default=default_vendors)
-        target_vendors = all_vendors if not sel_vendors or '전체 선택' in sel_vendors else sel_vendors
-
-        st.subheader("2️⃣ 품목 추가")
-        c1, c2, c3 = st.columns([1.5, 2, 0.8])
+        c_add1, c_add2, c_add3 = st.columns([1.5, 2, 0.8])
         all_items = df_sorted['품목'].unique().tolist()
-        with c1: add_item = st.selectbox("품목", all_items, key="vp_item")
+        
+        with c_add1:
+            add_item = st.selectbox("품목", all_items, key="vp_simple_item")
+            
         item_df = df_sorted[df_sorted['품목'] == add_item]
         spec_combinations = item_df[['calc_spec', 'display_spec']].drop_duplicates().sort_values(by=['calc_spec', 'display_spec'], key=lambda x: x.map(robust_natural_sort_key))
         
-        spec_opts = []; spec_map = {}
+        spec_opts = []; spec_map = {} 
         for _, row in spec_combinations.iterrows():
             s1, s2 = row['calc_spec'], row['display_spec']
             label = f"{s1} | {s2}" if s2 and s2!=s1 else s1
             spec_opts.append(label); spec_map[label] = (s1, s2)
-        with c2: add_spec = st.selectbox("규격", spec_opts, key="vp_spec")
-        with c3:
-            if st.button("➕ 목록에 추가", use_container_width=True, key="vp_add"):
-                if add_spec:
-                    s1, s2 = spec_map[add_spec]
+            
+        with c_add2:
+            add_spec_label = st.selectbox("규격 (규격1 | 규격2)", spec_opts, key="vp_simple_spec")
+            
+        with c_add3:
+            if st.button("➕ 목록에 추가", use_container_width=True, key="vp_simple_add"):
+                if add_spec_label:
+                    s1, s2 = spec_map[add_spec_label]
                     key = (add_item, s1, s2)
-                    if not any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_simple):
+                    exists = any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_simple)
+                    
+                    if not exists:
                         if key in st.session_state.vendor_del_set: st.session_state.vendor_del_set.remove(key)
                         st.session_state.vendor_cart_simple.append({'item': add_item, 's1': s1, 's2': s2})
                         st.toast(f"✅ {add_item} 추가됨")
-                    else: st.toast("⚠️ 이미 목록에 있음")
+                    else: st.toast("⚠️ 이미 목록에 있습니다.")
 
+        # 3. 데이터 처리 및 표시
         st.divider()
         active_cart = [x for x in st.session_state.vendor_cart_simple if (x['item'], x['s1'], x['s2']) not in st.session_state.vendor_del_set]
         st.subheader(f"📋 비교 리스트 ({len(active_cart)}건)")
         
         if active_cart and target_vendors:
             cart_df = pd.DataFrame(active_cart); cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
-            df_unique = df_sorted.groupby(['품목', 'calc_spec', 'display_spec'])[vendor_cols].first().reset_index()
-            merged_view = pd.merge(cart_df, df_unique, on=['품목', 'calc_spec', 'display_spec'], how='left')
+            
+            # Pivot raw data to get vendors as columns
+            df_pivot_base = df_purch.pivot_table(
+                index=['품목', 'calc_spec', 'display_spec'],
+                columns=vendor_col,
+                values=price_col,
+                aggfunc='first'
+            ).reset_index()
+            
+            merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
             clean_targets = [str(v).replace(' ', '') for v in target_vendors]
-            pivot_cols = df_unique.columns; matched_cols = []
+            pivot_cols = df_pivot_base.columns
+            matched_cols = []
             for c in pivot_cols:
                 if str(c).replace(' ', '') in clean_targets: matched_cols.append(c)
 
@@ -417,33 +429,27 @@ def run_vendor_purchase_system():
                 return row
 
             df_calc = merged_view.apply(apply_unit_calc, axis=1)
+            
             cols_show = ['품목', 'calc_spec', 'display_spec'] + matched_cols
             df_out = df_calc[cols_show].copy()
             df_out.rename(columns={'calc_spec': '규격1', 'display_spec': '규격2'}, inplace=True)
+            
             df_out.insert(0, "삭제", False)
             df_out['row_id'] = list(zip(df_out['품목'], df_out['규격1'], df_out['규격2']))
             df_out.index = df_out['row_id']
-            
-            # 컬럼 설정 생성 (업체 열에 대해서만)
-            # 업체 열들은 기본값(자동)으로 두거나 small/medium 설정 가능.
-            # 품목, 규격은 고정된 너비 사용.
-            col_config = {
-                "삭제": st.column_config.CheckboxColumn("삭제", width="small", default=False),
-                "품목": st.column_config.TextColumn("품목", width="medium", disabled=True),
-                "규격1": st.column_config.TextColumn("규격1", width="small", disabled=True),
-                "규격2": st.column_config.TextColumn("규격2", width="small", disabled=True),
-            }
-            # 업체 컬럼들도 너무 넓지 않게 small 또는 medium으로 설정
-            for v_col in matched_cols:
-                col_config[v_col] = st.column_config.TextColumn(v_col, width="small", disabled=True)
 
             edited_df = st.data_editor(
                 df_out.drop(columns=['row_id']),
                 use_container_width=True,
-                column_config=col_config,
+                column_config={
+                    "삭제": st.column_config.CheckboxColumn("삭제", width="small", default=False),
+                    "품목": st.column_config.TextColumn("품목", width="medium", disabled=True),
+                    "규격1": st.column_config.TextColumn("규격1", width="small", disabled=True),
+                    "규격2": st.column_config.TextColumn("규격2", width="small", disabled=True),
+                },
                 disabled=matched_cols,
                 hide_index=True,
-                key="vendor_manual_final_opt"
+                key="vendor_manual_final_v2"
             )
             
             del_keys = edited_df[edited_df['삭제']].index.tolist()
