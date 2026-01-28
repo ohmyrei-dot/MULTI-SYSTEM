@@ -298,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 시스템 (수동 추가형, 가로 비교)
+# 4. [신규] 업체별 매입단가 시스템 (수동 추가 방식 + 가로 비교)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     st.title("📉 업체별 매입단가 조회")
@@ -319,7 +319,11 @@ def run_vendor_purchase_system():
         # 데이터 로드
         df_purch = pd.read_excel(file_path, sheet_name='Purchase_매입단가')
         
-        # 컬럼 정규화
+        # 컬럼 매핑
+        vendor_col = next((c for c in df_purch.columns if '매입업체' in str(c)), next((c for c in df_purch.columns if '업체' in str(c)), None))
+        price_col = next((c for c in df_purch.columns if '매입단가' in str(c)), next((c for c in df_purch.columns if '단가' in str(c) or '가격' in str(c)), None))
+        if not vendor_col or not price_col: st.error("필수 컬럼 없음"); return
+
         col_map = {}
         if '규격1' in df_purch.columns: col_map['규격1'] = 'calc_spec'
         elif '규격' in df_purch.columns: col_map['규격'] = 'calc_spec'
@@ -349,7 +353,6 @@ def run_vendor_purchase_system():
             if '와이어로프' in n: return 4
             if '와이어클립' in n: return 5
             return 6
-            
         df_purch['Sort_Base'] = df_purch['품목'].apply(get_base_score)
         
         # 기본 데이터 정렬 (선택박스 순서용)
@@ -360,12 +363,12 @@ def run_vendor_purchase_system():
         )
 
         # -----------------------------------------------------------
-        # 1. 상단: 업체 선택 (멀티)
+        # 1. 상단: 업체 선택 (멀티) - 가로 열 배치
         # -----------------------------------------------------------
         st.subheader("1️⃣ 업체 선택")
         all_vendors = sorted(vendor_cols)
         
-        # 기본 선택 (있는 업체 중)
+        # 기본 선택
         defaults = ['가온건설', '신영산업안전', '토우코리아']
         default_vendors = [v for v in defaults if v in all_vendors]
         
@@ -431,14 +434,14 @@ def run_vendor_purchase_system():
             cart_df = pd.DataFrame(st.session_state.vendor_cart)
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
             
-            # 2) 원본 데이터에서 단가 정보 매핑 (Merge)
-            # 원본 df_sorted는 이미 Wide Format (업체명 컬럼 존재)
-            # 품목, calc_spec, display_spec 기준으로 Join
+            # 2) 원본 데이터(Wide Format)에서 단가 정보 매핑 (Merge)
+            # 품목, calc_spec, display_spec 기준으로 중복 없는 단가 정보 가져오기
+            # 원본 df_sorted는 이미 Wide Format임.
             
-            # 원본에서 중복 행 제거 (키 기준 첫번째 값)
+            # 중복 행 제거 (키 기준 첫번째 값)
             df_unique = df_sorted.groupby(['품목', 'calc_spec', 'display_spec'])[vendor_cols].first().reset_index()
             
-            # Merge
+            # Merge (Cart 순서 유지되도록 how='left' on Cart)
             merged_view = pd.merge(
                 cart_df, 
                 df_unique, 
@@ -446,7 +449,7 @@ def run_vendor_purchase_system():
                 how='left'
             )
             
-            # 3) 단위당 단가 계산 (강제 지침)
+            # 3) 단위당 단가 계산 (강제 지침 - 4대 품목만)
             def apply_unit_calc(row):
                 item = str(row['품목'])
                 spec1 = str(row['calc_spec'])
@@ -461,8 +464,7 @@ def run_vendor_purchase_system():
                     elif len(nums) == 1: divisor = nums[0]
                 elif any(x in item for x in ['와이어로프', '와이어클립']):
                     # 숫자 1개 추출 (여러 개면 마지막 숫자 - 보통 길이/수량)
-                    # 와이어로프 200m -> 200
-                    # 와이어클립 100pcs -> 100
+                    # 와이어로프 200m -> 200, 와이어클립 100pcs -> 100
                     nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec1)]
                     if nums: divisor = nums[-1]
                 
@@ -472,8 +474,10 @@ def run_vendor_purchase_system():
                 for v in target_vendors:
                     if v in row:
                         val = row[v]
+                        # 숫자 변환 시도 (float)
                         try:
                             val_num = float(val)
+                            # 계산된 값 저장
                             row[v] = val_num / divisor
                         except: pass
                 return row
@@ -481,14 +485,13 @@ def run_vendor_purchase_system():
             df_calc = merged_view.apply(apply_unit_calc, axis=1)
             
             # 4) 식별자 생성 및 삭제 필터링
-            # 튜플 키 사용
             df_calc['row_id'] = list(zip(df_calc['품목'], df_calc['calc_spec'], df_calc['display_spec']))
             
             # 삭제된 행 제외
             df_final = df_calc[~df_calc['row_id'].isin(st.session_state.vendor_comp_deleted)].copy()
             
             # 5) 최종 출력 구성
-            # 컬럼: 삭제, 품목, 규격1, 규격2, 업체들
+            # 컬럼: 삭제, 품목, 규격1, 규격2, [선택된 업체들]
             cols_show = ['품목', 'calc_spec', 'display_spec'] + [v for v in target_vendors if v in df_final.columns]
             df_out = df_final[cols_show].copy()
             df_out.rename(columns={'calc_spec': '규격1', 'display_spec': '규격2'}, inplace=True)
@@ -506,9 +509,9 @@ def run_vendor_purchase_system():
                     "규격1": st.column_config.TextColumn("규격1", width="medium", disabled=True),
                     "규격2": st.column_config.TextColumn("규격2", width="medium", disabled=True),
                 },
-                disabled=target_vendors,
+                disabled=target_vendors, # 업체 데이터 수정 불가
                 hide_index=True,
-                key="vendor_manual_editor_final"
+                key="vendor_list_editor"
             )
             
             # 삭제 처리
@@ -516,7 +519,7 @@ def run_vendor_purchase_system():
             if deleted_keys:
                 for k in deleted_keys:
                     st.session_state.vendor_comp_deleted.add(k)
-                    # 리스트 동기화 (선택사항)
+                    # 실제 리스트에서도 제거 (선택사항이나 상태 동기화 권장)
                     st.session_state.vendor_cart = [
                         x for x in st.session_state.vendor_cart 
                         if (x['item'], x['s1'], x['s2']) != k
