@@ -298,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (쓰레기통 버튼 복구 + st.columns 사용)
+# 4. [신규] 업체별 매입단가 조회 (쓰레기통 버튼 + 업체 열 순서 유지)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 표 내부 글자 크기 확대 (버튼 스타일 등)
@@ -396,11 +396,12 @@ def run_vendor_purchase_system():
                     key = (add_item, s1, s2)
                     if key in st.session_state.vendor_deleted_set_new:
                         st.session_state.vendor_deleted_set_new.remove(key)
-                        st.toast(f"✅ {add_item} 복구됨")
-                    elif not any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
+                        st.toast(f"✅ {add_item} (복구됨)")
+                    elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
+                        st.toast("⚠️ 이미 목록에 있습니다.")
+                    else:
                         st.session_state.vendor_cart_new.append({'item': add_item, 's1': s1, 's2': s2})
                         st.toast(f"✅ {add_item} 추가됨")
-                    else: st.toast("⚠️ 이미 있음")
 
         st.divider()
         active_cart = [x for x in st.session_state.vendor_cart_new if (x['item'], x['s1'], x['s2']) not in st.session_state.vendor_deleted_set_new]
@@ -420,18 +421,19 @@ def run_vendor_purchase_system():
             
             merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
-            # [수정] 업체 컬럼 필터링 (사용자 선택 순서 유지)
-            pivot_cols = df_pivot_base.columns
-            clean_to_real = {}
-            for c in pivot_cols:
+            # [핵심 수정] 업체 컬럼 매칭 시 사용자 선택 순서 유지
+            clean_targets = [str(v).replace(' ', '') for v in target_vendors] # 사용자 선택 순서
+            
+            # 실제 데이터에 있는 컬럼들과 매핑 (공백 제거하여 비교)
+            clean_to_real_map = {}
+            for c in df_pivot_base.columns:
                 if c not in ['품목', 'calc_spec', 'display_spec']:
-                    clean_to_real[str(c).replace(' ', '')] = c
+                    clean_to_real_map[str(c).replace(' ', '')] = c
             
             matched_cols = []
-            clean_targets = [str(v).replace(' ', '') for v in target_vendors]
             for t in clean_targets:
-                if t in clean_to_real:
-                    matched_cols.append(clean_to_real[t])
+                if t in clean_to_real_map:
+                    matched_cols.append(clean_to_real_map[t])
 
             def apply_unit_calc(row):
                 item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
@@ -461,9 +463,6 @@ def run_vendor_purchase_system():
             df_out['row_id'] = list(zip(df_out['품목'], df_out['규격1'], df_out['규격2']))
             
             # [수정] st.columns를 사용한 표 출력 (쓰레기통 버튼)
-            # 너비 비율 설정: 삭제(0.4), 품목(1.5), 규격1(1.2), 규격2(1.5), 업체들(1.2)
-            # 요청사항: 품목, 규격1, 업체명 너비를 규격2와 같게 -> 모두 비슷하게 1.5 정도로 맞춤
-            # 단, 삭제는 작게.
             ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(matched_cols)
             
             # 헤더
@@ -495,12 +494,12 @@ def run_vendor_purchase_system():
                 st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
 
             if len(st.session_state.vendor_deleted_set_new) > 0:
-                if st.button("🗑️ 삭제된 항목 복구"):
+                if st.button("🗑️ 삭제된 항목 모두 복구"):
                     st.session_state.vendor_deleted_set_new = set()
                     st.rerun()
         else:
-            if not target_vendors: st.info("👆 매입처 선택 필요")
-            else: st.info("👇 품목을 추가하세요")
+            if not target_vendors: st.info("👆 먼저 상단에서 비교할 '매입처'를 선택해주세요.")
+            else: st.info("👇 품목을 선택하고 [추가] 버튼을 눌러 리스트를 작성하세요.")
 
     except Exception as e: st.error(f"오류: {e}")
 
