@@ -298,14 +298,15 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (수동 추가, 가로 비교, 열 정렬 수정)
+# 4. [신규] 업체별 매입단가 조회 (쓰레기통 버튼 복구 + st.columns 사용)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
-    # CSS: 표 내부 글자 크기 확대
+    # CSS: 표 내부 글자 크기 확대 (버튼 스타일 등)
     st.markdown("""
     <style>
-    div[data-testid="stDataEditor"] table { font-size: 1.15rem !important; }
-    div[data-testid="stDataEditor"] td { font-size: 1.15rem !important; }
+    div[data-testid="stColumn"] {
+        align-items: center;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -339,12 +340,11 @@ def run_vendor_purchase_system():
         df_purch['calc_spec'] = df_purch['calc_spec'].fillna("").astype(str)
         df_purch['display_spec'] = df_purch['display_spec'].fillna("").astype(str)
         df_purch['품목'] = df_purch['품목'].fillna("").astype(str)
-
+        
         # 1. 업체 선택
         st.subheader("1️⃣ 업체 선택")
         all_vendors = sorted(df_purch[vendor_col].dropna().unique().astype(str))
         
-        # 기본 선택
         defaults = ['가온건설', '신영산업안전', '토우코리아']
         default_vendors = [v for v in defaults if v in all_vendors]
         
@@ -422,8 +422,6 @@ def run_vendor_purchase_system():
             
             # [수정] 업체 컬럼 필터링 (사용자 선택 순서 유지)
             pivot_cols = df_pivot_base.columns
-            
-            # Helper to map clean name to real col
             clean_to_real = {}
             for c in pivot_cols:
                 if c not in ['품목', 'calc_spec', 'display_spec']:
@@ -431,8 +429,6 @@ def run_vendor_purchase_system():
             
             matched_cols = []
             clean_targets = [str(v).replace(' ', '') for v in target_vendors]
-            
-            # target_vendors 순서대로 matched_cols 구성
             for t in clean_targets:
                 if t in clean_to_real:
                     matched_cols.append(clean_to_real[t])
@@ -462,39 +458,41 @@ def run_vendor_purchase_system():
             df_out = df_calc[cols_show].copy()
             df_out.rename(columns={'calc_spec': '규격1', 'display_spec': '규격2'}, inplace=True)
             
-            df_out.insert(0, "삭제", False)
             df_out['row_id'] = list(zip(df_out['품목'], df_out['규격1'], df_out['규격2']))
-            df_out.index = df_out['row_id']
             
-            # Formatter
-            df_formatted = df_out.copy()
-            for v_col in matched_cols:
-                df_formatted[v_col] = df_formatted[v_col].apply(format_price_safe)
-
-            # 컬럼 설정
-            col_config = {
-                "삭제": st.column_config.CheckboxColumn("삭제", width="small", default=False),
-                "품목": st.column_config.TextColumn("품목", width="medium", disabled=True),
-                "규격1": st.column_config.TextColumn("규격1", width="medium", disabled=True),
-                "규격2": st.column_config.TextColumn("규격2", width="medium", disabled=True),
-            }
-            # 업체 컬럼: medium (가독성 위해)
-            for v_col in matched_cols:
-                col_config[v_col] = st.column_config.TextColumn(v_col, width="medium", disabled=True)
-
-            edited_df = st.data_editor(
-                df_formatted.drop(columns=['row_id']),
-                use_container_width=False, 
-                column_config=col_config,
-                disabled=matched_cols + ['품목', '규격1', '규격2'],
-                hide_index=True,
-                key="vendor_manual_final_ordered"
-            )
+            # [수정] st.columns를 사용한 표 출력 (쓰레기통 버튼)
+            # 너비 비율 설정: 삭제(0.4), 품목(1.5), 규격1(1.2), 규격2(1.5), 업체들(1.2)
+            # 요청사항: 품목, 규격1, 업체명 너비를 규격2와 같게 -> 모두 비슷하게 1.5 정도로 맞춤
+            # 단, 삭제는 작게.
+            ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(matched_cols)
             
-            del_keys = edited_df[edited_df['삭제']].index.tolist()
-            if del_keys:
-                for k in del_keys: st.session_state.vendor_deleted_set_new.add(k)
-                st.rerun()
+            # 헤더
+            h = st.columns(ratios)
+            h[0].markdown("**삭제**")
+            h[1].markdown("**품목**")
+            h[2].markdown("**규격1**")
+            h[3].markdown("**규격2**")
+            for i, v in enumerate(matched_cols): h[4+i].markdown(f"**{v}**")
+            st.markdown("---")
+            
+            # 내용
+            for _, row in df_out.iterrows():
+                row_key = row['row_id']
+                c = st.columns(ratios)
+                
+                # 쓰레기통 버튼
+                if c[0].button("🗑️", key=f"btn_del_trash_{row_key}"):
+                    st.session_state.vendor_deleted_set_new.add(row_key)
+                    st.rerun()
+                
+                c[1].text(row['품목'])
+                c[2].text(row['규격1'])
+                c[3].text(row['규격2'])
+                
+                for i, v in enumerate(matched_cols):
+                    c[4+i].text(format_price_safe(row[v]))
+                
+                st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
 
             if len(st.session_state.vendor_deleted_set_new) > 0:
                 if st.button("🗑️ 삭제된 항목 복구"):
