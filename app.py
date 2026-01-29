@@ -298,12 +298,22 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (쓰레기통 버튼 + 업체 열 순서 유지)
+# 4. [신규] 업체별 매입단가 조회 (수동 테이블 방식)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
-    # CSS: 표 내부 글자 크기 확대 (버튼 스타일 등)
+    # CSS: 테이블 스타일 조정
     st.markdown("""
     <style>
+    .vendor-table-header {
+        font-weight: bold;
+        border-bottom: 2px solid #ddd;
+        padding-bottom: 5px;
+        margin-bottom: 5px;
+    }
+    .vendor-table-row {
+        border-bottom: 1px dashed #eee;
+        padding: 5px 0;
+    }
     div[data-testid="stColumn"] {
         align-items: center;
     }
@@ -312,13 +322,10 @@ def run_vendor_purchase_system():
 
     st.title("📉 업체별 매입단가 조회")
     st.markdown("매입처별 단가를 한눈에 비교하고 목록을 작성하세요.")
-    st.caption("💡 멀티 셀렉트 박스에서 선택한 순서대로 표에 나열됩니다.")
 
     if 'vendor_cart_new' not in st.session_state:
         st.session_state.vendor_cart_new = []
-    if 'vendor_deleted_set_new' not in st.session_state:
-        st.session_state.vendor_deleted_set_new = set()
-
+    
     file_path = '단가표.xlsx'
     if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 파일 없음"); return
 
@@ -344,12 +351,18 @@ def run_vendor_purchase_system():
         # 1. 업체 선택
         st.subheader("1️⃣ 업체 선택")
         all_vendors = sorted(df_purch[vendor_col].dropna().unique().astype(str))
-        
         defaults = ['가온건설', '신영산업안전', '토우코리아']
         default_vendors = [v for v in defaults if v in all_vendors]
         
-        sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (가로 열)", ['전체 선택']+all_vendors, default=default_vendors)
-        target_vendors = all_vendors if not sel_vendors or '전체 선택' in sel_vendors else sel_vendors
+        sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (선택한 순서대로 표시됩니다)", ['전체 선택']+all_vendors, default=default_vendors)
+        
+        # [핵심] 선택한 순서 유지 (target_vendors)
+        if not sel_vendors:
+             target_vendors = []
+        elif '전체 선택' in sel_vendors:
+             target_vendors = all_vendors # 전체 선택 시 가나다순
+        else:
+             target_vendors = sel_vendors # 사용자 클릭 순서 유지
 
         # 2. 품목 추가
         st.subheader("2️⃣ 품목 추가")
@@ -394,21 +407,20 @@ def run_vendor_purchase_system():
                 if add_spec_label:
                     s1, s2 = spec_map[add_spec_label]
                     key = (add_item, s1, s2)
-                    if key in st.session_state.vendor_deleted_set_new:
-                        st.session_state.vendor_deleted_set_new.remove(key)
-                        st.toast(f"✅ {add_item} (복구됨)")
-                    elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
-                        st.toast("⚠️ 이미 목록에 있습니다.")
-                    else:
+                    exists = any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new)
+                    
+                    if not exists:
                         st.session_state.vendor_cart_new.append({'item': add_item, 's1': s1, 's2': s2})
                         st.toast(f"✅ {add_item} 추가됨")
+                    else:
+                        st.toast("⚠️ 이미 목록에 있습니다.")
 
+        # 3. 데이터 처리 및 표시 (수동 테이블)
         st.divider()
-        active_cart = [x for x in st.session_state.vendor_cart_new if (x['item'], x['s1'], x['s2']) not in st.session_state.vendor_deleted_set_new]
-        st.subheader(f"📋 비교 리스트 ({len(active_cart)}건)")
-
-        if active_cart and target_vendors:
-            cart_df = pd.DataFrame(active_cart)
+        st.subheader(f"📋 비교 리스트 ({len(st.session_state.vendor_cart_new)}건)")
+        
+        if st.session_state.vendor_cart_new and target_vendors:
+            cart_df = pd.DataFrame(st.session_state.vendor_cart_new)
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
             
             # Pivot raw data
@@ -421,20 +433,21 @@ def run_vendor_purchase_system():
             
             merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
-            # [핵심 수정] 업체 컬럼 매칭 시 사용자 선택 순서 유지
-            clean_targets = [str(v).replace(' ', '') for v in target_vendors] # 사용자 선택 순서
-            
-            # 실제 데이터에 있는 컬럼들과 매핑 (공백 제거하여 비교)
-            clean_to_real_map = {}
-            for c in df_pivot_base.columns:
+            # [핵심] 순서가 보장된 컬럼 매칭
+            # target_vendors(선택 순서)를 순회하며 실제 컬럼을 찾음
+            pivot_cols = df_pivot_base.columns
+            clean_to_real = {}
+            for c in pivot_cols:
                 if c not in ['품목', 'calc_spec', 'display_spec']:
-                    clean_to_real_map[str(c).replace(' ', '')] = c
+                    clean_to_real[str(c).replace(' ', '')] = c
             
-            matched_cols = []
-            for t in clean_targets:
-                if t in clean_to_real_map:
-                    matched_cols.append(clean_to_real_map[t])
+            ordered_matched_cols = []
+            for t in target_vendors:
+                clean_t = str(t).replace(' ', '')
+                if clean_t in clean_to_real:
+                    ordered_matched_cols.append(clean_to_real[clean_t])
 
+            # 단위당 단가 계산
             def apply_unit_calc(row):
                 item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
                 if '럿셀망' in item: divisor = 1.0
@@ -447,7 +460,7 @@ def run_vendor_purchase_system():
                     if nums: divisor = nums[-1]
                 if divisor == 0: divisor = 1.0
                 
-                for v in matched_cols:
+                for v in ordered_matched_cols:
                     if v in row:
                         val = row[v]
                         try: row[v] = float(val) / divisor
@@ -455,48 +468,69 @@ def run_vendor_purchase_system():
                 return row
 
             df_calc = merged_view.apply(apply_unit_calc, axis=1)
+            df_out = df_calc.copy()
             
-            cols_show = ['품목', 'calc_spec', 'display_spec'] + matched_cols
-            df_out = df_calc[cols_show].copy()
-            df_out.rename(columns={'calc_spec': '규격1', 'display_spec': '규격2'}, inplace=True)
+            # [수정] st.columns로 테이블 직접 그리기 (UI 문제 해결)
+            # 너비 비율: 삭제(0.5) 품목(1.5) 규격1(1.5) 규격2(1.5) 업체들(1.5씩)
+            col_ratio = [0.5, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
             
-            df_out['row_id'] = list(zip(df_out['품목'], df_out['규격1'], df_out['규격2']))
+            # 헤더 출력
+            header_cols = st.columns(col_ratio)
+            header_cols[0].markdown("**삭제**")
+            header_cols[1].markdown("**품목**")
+            header_cols[2].markdown("**규격1**")
+            header_cols[3].markdown("**규격2**")
             
-            # [수정] st.columns를 사용한 표 출력 (쓰레기통 버튼)
-            ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(matched_cols)
+            for i, v in enumerate(ordered_matched_cols):
+                header_cols[4+i].markdown(f"**{v}**") # 선택한 순서대로 출력됨
             
-            # 헤더
-            h = st.columns(ratios)
-            h[0].markdown("**삭제**")
-            h[1].markdown("**품목**")
-            h[2].markdown("**규격1**")
-            h[3].markdown("**규격2**")
-            for i, v in enumerate(matched_cols): h[4+i].markdown(f"**{v}**")
             st.markdown("---")
             
-            # 내용
-            for _, row in df_out.iterrows():
-                row_key = row['row_id']
-                c = st.columns(ratios)
+            # 행 출력
+            rows_to_delete = []
+            for idx, row in df_out.iterrows():
+                # 식별용 키
+                row_key = (row['품목'], row['calc_spec'], row['display_spec'])
                 
-                # 쓰레기통 버튼
-                if c[0].button("🗑️", key=f"btn_del_trash_{row_key}"):
-                    st.session_state.vendor_deleted_set_new.add(row_key)
-                    st.rerun()
+                c = st.columns(col_ratio)
+                
+                # 삭제 버튼 (유니크 키 사용)
+                if c[0].button("🗑️", key=f"btn_v_del_{idx}_{row_key}"):
+                    rows_to_delete.append(idx) # 인덱스 저장
                 
                 c[1].text(row['품목'])
-                c[2].text(row['규격1'])
-                c[3].text(row['규격2'])
+                c[2].text(row['calc_spec'])
+                c[3].text(row['display_spec'])
                 
-                for i, v in enumerate(matched_cols):
-                    c[4+i].text(format_price_safe(row[v]))
+                for i, v in enumerate(ordered_matched_cols):
+                    val = row.get(v)
+                    c[4+i].text(format_price_safe(val))
                 
-                st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
+                st.markdown("<hr style='margin: 5px 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
+            
+            # 삭제 실행 (세션 업데이트 후 리런)
+            if rows_to_delete:
+                # 역순으로 삭제해야 인덱스 안 꼬임 (하지만 여기선 리스트 재구성이라 상관X)
+                # 인덱스 idx에 해당하는 항목을 리스트에서 제거
+                # st.session_state.vendor_cart_new에서 제거
+                
+                # 안전하게 값으로 제거
+                for del_idx in rows_to_delete:
+                    # df_out의 해당 행 데이터 가져오기
+                    target_row = df_out.iloc[del_idx]
+                    key_to_remove = (target_row['품목'], target_row['calc_spec'], target_row['display_spec'])
+                    
+                    st.session_state.vendor_cart_new = [
+                        x for x in st.session_state.vendor_cart_new
+                        if (x['item'], x['s1'], x['s2']) != key_to_remove
+                    ]
+                st.rerun()
 
-            if len(st.session_state.vendor_deleted_set_new) > 0:
-                if st.button("🗑️ 삭제된 항목 모두 복구"):
-                    st.session_state.vendor_deleted_set_new = set()
-                    st.rerun()
+            # 전체 삭제 버튼
+            if st.button("🗑️ 리스트 전체 비우기", type="secondary", key="vp_clear_all"):
+                st.session_state.vendor_cart_new = []
+                st.rerun()
+                
         else:
             if not target_vendors: st.info("👆 먼저 상단에서 비교할 '매입처'를 선택해주세요.")
             else: st.info("👇 품목을 선택하고 [추가] 버튼을 눌러 리스트를 작성하세요.")
