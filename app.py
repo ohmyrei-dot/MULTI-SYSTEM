@@ -298,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (규격 필터 항상 표시)
+# 4. [신규] 업체별 매입단가 조회 (출력 순서 보장 + 쓰레기통 버튼)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -361,9 +361,13 @@ def run_vendor_purchase_system():
         
         sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (가로 열)", ['전체 선택']+all_vendors, default=default_vendors)
         
-        if not sel_vendors: target_vendors = []
-        elif '전체 선택' in sel_vendors: target_vendors = all_vendors
-        else: target_vendors = sel_vendors
+        # 선택된 순서 유지 (target_vendors)
+        if not sel_vendors:
+             target_vendors = []
+        elif '전체 선택' in sel_vendors:
+             target_vendors = all_vendors # 전체 선택 시 가나다순
+        else:
+             target_vendors = sel_vendors # 사용자 클릭 순서 유지
 
         # 2. 품목 추가
         st.subheader("2️⃣ 품목 추가")
@@ -418,6 +422,7 @@ def run_vendor_purchase_system():
                 if add_item and add_spec_label:
                     s1, s2 = spec_map[add_spec_label]
                     key = (add_item, s1, s2)
+                    
                     if key in st.session_state.vendor_deleted_set_new:
                         st.session_state.vendor_deleted_set_new.remove(key)
                         st.toast(f"✅ {add_item} (복구됨)")
@@ -433,6 +438,7 @@ def run_vendor_purchase_system():
 
         if active_cart and target_vendors:
             cart_df = pd.DataFrame(active_cart)
+            cart_df['__order'] = range(len(cart_df)) # 순서 보장용 인덱스
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
             
             # Pivot raw data
@@ -445,8 +451,7 @@ def run_vendor_purchase_system():
             
             merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
-            clean_targets = [str(v).replace(' ', '') for v in target_vendors]
-            # Match columns by order of selection
+            # [핵심] 순서가 보장된 컬럼 매칭
             pivot_cols = df_pivot_base.columns
             clean_to_real = {}
             for c in pivot_cols:
@@ -454,10 +459,12 @@ def run_vendor_purchase_system():
                     clean_to_real[str(c).replace(' ', '')] = c
             
             ordered_matched_cols = []
-            for t in clean_targets:
-                if t in clean_to_real:
-                    ordered_matched_cols.append(clean_to_real[t])
+            for t in target_vendors:
+                clean_t = str(t).replace(' ', '')
+                if clean_t in clean_to_real:
+                    ordered_matched_cols.append(clean_to_real[clean_t])
 
+            # 단위당 단가 계산
             def apply_unit_calc(row):
                 item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
                 if '럿셀망' in item: divisor = 1.0
@@ -469,6 +476,7 @@ def run_vendor_purchase_system():
                     nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec1)]
                     if nums: divisor = nums[-1]
                 if divisor == 0: divisor = 1.0
+                
                 for v in ordered_matched_cols:
                     if v in row:
                         val = row[v]
@@ -477,24 +485,43 @@ def run_vendor_purchase_system():
                 return row
 
             df_calc = merged_view.apply(apply_unit_calc, axis=1)
+            
+            # [수정] 순서 재정렬 (입력 순서대로)
+            df_calc = df_calc.sort_values('__order')
+            
             df_out = df_calc.copy()
+            df_out.rename(columns={'calc_spec': '규격1', 'display_spec': '규격2'}, inplace=True)
             
-            df_out['row_id'] = list(zip(df_out['품목'], df_out['calc_spec'], df_out['display_spec']))
+            df_out['row_id'] = list(zip(df_out['품목'], df_out['규격1'], df_out['규격2']))
             
+            # st.columns를 사용한 표 출력 (쓰레기통 버튼)
             ratios = [0.5, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
+            
+            # 헤더
             h = st.columns(ratios)
-            h[0].markdown("**삭제**"); h[1].markdown("**품목**"); h[2].markdown("**규격1**"); h[3].markdown("**규격2**")
+            h[0].markdown("**삭제**")
+            h[1].markdown("**품목**")
+            h[2].markdown("**규격1**")
+            h[3].markdown("**규격2**")
             for i, v in enumerate(ordered_matched_cols): h[4+i].markdown(f"**{v}**")
             st.markdown("---")
             
+            # 내용
             for _, row in df_out.iterrows():
                 row_key = row['row_id']
                 c = st.columns(ratios)
+                
                 if c[0].button("🗑️", key=f"btn_del_v_{row_key}"):
                     st.session_state.vendor_deleted_set_new.add(row_key)
                     st.rerun()
-                c[1].text(row['품목']); c[2].text(row['calc_spec']); c[3].text(row['display_spec'])
-                for i, v in enumerate(ordered_matched_cols): c[4+i].text(format_price_safe(row[v]))
+                
+                c[1].text(row['품목'])
+                c[2].text(row['규격1'])
+                c[3].text(row['규격2'])
+                
+                for i, v in enumerate(ordered_matched_cols):
+                    c[4+i].text(format_price_safe(row[v]))
+                
                 st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
 
             if len(st.session_state.vendor_deleted_set_new) > 0:
