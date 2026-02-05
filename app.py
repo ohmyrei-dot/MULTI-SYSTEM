@@ -298,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (쓰레기통 버튼 + 업체 열 순서 유지 + 초기값 없음)
+# 4. [신규] 업체별 매입단가 조회 (규격 필터 항상 표시)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -356,16 +356,14 @@ def run_vendor_purchase_system():
         st.subheader("1️⃣ 업체 선택")
         all_vendors = sorted(df_purch[vendor_col].dropna().unique().astype(str))
         
-        # 기본값 없이 (사용자가 선택하도록 유도)
-        sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (가로 열)", ['전체 선택']+all_vendors, default=[])
+        defaults = ['가온건설', '신영산업안전', '토우코리아']
+        default_vendors = [v for v in defaults if v in all_vendors]
         
-        # 선택된 순서 유지 (target_vendors)
-        if not sel_vendors:
-             target_vendors = []
-        elif '전체 선택' in sel_vendors:
-             target_vendors = all_vendors # 전체 선택 시 가나다순
-        else:
-             target_vendors = sel_vendors # 사용자 클릭 순서 유지
+        sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (가로 열)", ['전체 선택']+all_vendors, default=default_vendors)
+        
+        if not sel_vendors: target_vendors = []
+        elif '전체 선택' in sel_vendors: target_vendors = all_vendors
+        else: target_vendors = sel_vendors
 
         # 2. 품목 추가
         st.subheader("2️⃣ 품목 추가")
@@ -391,50 +389,48 @@ def run_vendor_purchase_system():
 
         all_items = df_sorted['품목'].unique().tolist()
         with c_add1:
-            # 초기값 None (Streamlit 1.29+), 아니면 그냥 첫번째
             add_item = st.selectbox("품목", all_items, index=None, placeholder="품목을 선택하세요...", key="vp_new_item")
             
+        # 규격 리스트 준비 (품목 선택 여부와 무관하게 UI 표시)
+        spec_opts = []
+        spec_map = {}
         if add_item:
             item_df = df_sorted[df_sorted['품목'] == add_item]
             spec_combinations = item_df[['calc_spec', 'display_spec']].drop_duplicates().sort_values(by=['calc_spec', 'display_spec'], key=lambda x: x.map(robust_natural_sort_key))
             
-            spec_opts = []; spec_map = {} 
             for _, row in spec_combinations.iterrows():
                 s1, s2 = row['calc_spec'], row['display_spec']
                 label = f"{s1} | {s2}" if s2 and s2!=s1 else s1
                 spec_opts.append(label); spec_map[label] = (s1, s2)
-                
-            with c_add2:
-                add_spec_label = st.selectbox("규격 (규격1 | 규격2)", spec_opts, index=None, placeholder="규격을 선택하세요...", key="vp_new_spec")
-                
-            with c_add3:
-                if st.button("➕ 목록에 추가", use_container_width=True, key="vp_new_add"):
-                    if add_spec_label:
-                        s1, s2 = spec_map[add_spec_label]
-                        key = (add_item, s1, s2)
-                        
-                        # 삭제 목록에 있으면 복구 (중복 아님)
-                        if key in st.session_state.vendor_deleted_set_new:
-                            st.session_state.vendor_deleted_set_new.remove(key)
-                            st.toast(f"✅ {add_item} (복구됨)")
-                        # 리스트에 이미 있으면 중복
-                        elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
-                            st.toast("⚠️ 이미 목록에 있습니다.")
-                        else:
-                            st.session_state.vendor_cart_new.append({'item': add_item, 's1': s1, 's2': s2})
-                            st.toast(f"✅ {add_item} 추가됨")
+        
+        with c_add2:
+            add_spec_label = st.selectbox(
+                "규격 (규격1 | 규격2)", 
+                spec_opts, 
+                index=None, 
+                placeholder="규격을 선택하세요..." if add_item else "품목을 먼저 선택하세요", 
+                key="vp_new_spec",
+                disabled=not add_item
+            )
+            
+        with c_add3:
+            if st.button("➕ 목록에 추가", use_container_width=True, key="vp_new_add", disabled=not (add_item and add_spec_label)):
+                if add_item and add_spec_label:
+                    s1, s2 = spec_map[add_spec_label]
+                    key = (add_item, s1, s2)
+                    if key in st.session_state.vendor_deleted_set_new:
+                        st.session_state.vendor_deleted_set_new.remove(key)
+                        st.toast(f"✅ {add_item} (복구됨)")
+                    elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
+                        st.toast("⚠️ 이미 목록에 있습니다.")
                     else:
-                        st.warning("규격을 선택해주세요.")
-        else:
-            with c_add2: st.empty()
-            with c_add3: st.empty()
+                        st.session_state.vendor_cart_new.append({'item': add_item, 's1': s1, 's2': s2})
+                        st.toast(f"✅ {add_item} 추가됨")
 
-        # 3. 데이터 처리 및 표시 (수동 테이블)
         st.divider()
         active_cart = [x for x in st.session_state.vendor_cart_new if (x['item'], x['s1'], x['s2']) not in st.session_state.vendor_deleted_set_new]
-        
         st.subheader(f"📋 비교 리스트 ({len(active_cart)}건)")
-        
+
         if active_cart and target_vendors:
             cart_df = pd.DataFrame(active_cart)
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
@@ -449,7 +445,8 @@ def run_vendor_purchase_system():
             
             merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
-            # [핵심] 순서가 보장된 컬럼 매칭
+            clean_targets = [str(v).replace(' ', '') for v in target_vendors]
+            # Match columns by order of selection
             pivot_cols = df_pivot_base.columns
             clean_to_real = {}
             for c in pivot_cols:
@@ -457,12 +454,10 @@ def run_vendor_purchase_system():
                     clean_to_real[str(c).replace(' ', '')] = c
             
             ordered_matched_cols = []
-            for t in target_vendors:
-                clean_t = str(t).replace(' ', '')
-                if clean_t in clean_to_real:
-                    ordered_matched_cols.append(clean_to_real[clean_t])
+            for t in clean_targets:
+                if t in clean_to_real:
+                    ordered_matched_cols.append(clean_to_real[t])
 
-            # 단위당 단가 계산
             def apply_unit_calc(row):
                 item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
                 if '럿셀망' in item: divisor = 1.0
@@ -474,7 +469,6 @@ def run_vendor_purchase_system():
                     nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec1)]
                     if nums: divisor = nums[-1]
                 if divisor == 0: divisor = 1.0
-                
                 for v in ordered_matched_cols:
                     if v in row:
                         val = row[v]
@@ -485,39 +479,22 @@ def run_vendor_purchase_system():
             df_calc = merged_view.apply(apply_unit_calc, axis=1)
             df_out = df_calc.copy()
             
-            # 인덱스용 키 생성
             df_out['row_id'] = list(zip(df_out['품목'], df_out['calc_spec'], df_out['display_spec']))
             
-            # [수정] st.columns를 사용한 표 출력 (쓰레기통 버튼)
-            # 너비 비율: 삭제(0.5) 품목(1.5) 규격1(1.5) 규격2(1.5) 업체들(1.5씩)
-            col_ratio = [0.5, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
-            
-            # 헤더
-            h = st.columns(col_ratio)
-            h[0].markdown("**삭제**")
-            h[1].markdown("**품목**")
-            h[2].markdown("**규격1**")
-            h[3].markdown("**규격2**")
+            ratios = [0.5, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
+            h = st.columns(ratios)
+            h[0].markdown("**삭제**"); h[1].markdown("**품목**"); h[2].markdown("**규격1**"); h[3].markdown("**규격2**")
             for i, v in enumerate(ordered_matched_cols): h[4+i].markdown(f"**{v}**")
             st.markdown("---")
             
-            # 내용
             for _, row in df_out.iterrows():
                 row_key = row['row_id']
-                c = st.columns(col_ratio)
-                
-                # 쓰레기통 버튼
+                c = st.columns(ratios)
                 if c[0].button("🗑️", key=f"btn_del_v_{row_key}"):
                     st.session_state.vendor_deleted_set_new.add(row_key)
                     st.rerun()
-                
-                c[1].text(row['품목'])
-                c[2].text(row['calc_spec'])
-                c[3].text(row['display_spec'])
-                
-                for i, v in enumerate(ordered_matched_cols):
-                    c[4+i].text(format_price_safe(row[v]))
-                
+                c[1].text(row['품목']); c[2].text(row['calc_spec']); c[3].text(row['display_spec'])
+                for i, v in enumerate(ordered_matched_cols): c[4+i].text(format_price_safe(row[v]))
                 st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
 
             if len(st.session_state.vendor_deleted_set_new) > 0:
