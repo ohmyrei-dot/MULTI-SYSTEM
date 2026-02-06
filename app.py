@@ -298,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (SyntaxError 수정)
+# 4. [신규] 업체별 매입단가 조회 (규격 멀티셀렉트 + 쓰레기통 버튼)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -392,14 +392,13 @@ def run_vendor_purchase_system():
         )
 
         all_items = df_sorted['품목'].unique().tolist()
-        
+        with c_add1:
+            # 초기값 None
+            add_item = st.selectbox("품목", all_items, index=None, placeholder="품목을 선택하세요...", key="vp_new_item")
+            
         spec_opts = []
         spec_map = {}
         
-        with c_add1:
-            add_item = st.selectbox("품목", all_items, index=None, placeholder="품목을 선택하세요...", key="vp_new_item")
-        
-        # 품목 선택 여부와 관계없이 변수 초기화 및 로직 실행
         if add_item:
             item_df = df_sorted[df_sorted['품목'] == add_item]
             spec_combinations = item_df[['calc_spec', 'display_spec']].drop_duplicates().sort_values(by=['calc_spec', 'display_spec'], key=lambda x: x.map(robust_natural_sort_key))
@@ -410,34 +409,45 @@ def run_vendor_purchase_system():
                 spec_opts.append(label); spec_map[label] = (s1, s2)
                 
         with c_add2:
-            add_spec_label = st.selectbox(
+            # [수정] 멀티 셀렉트로 변경
+            add_spec_labels = st.multiselect(
                 "규격 (규격1 | 규격2)", 
                 spec_opts, 
-                index=None, 
                 placeholder="규격을 선택하세요..." if add_item else "품목을 먼저 선택하세요", 
                 key="vp_new_spec",
                 disabled=not add_item
             )
             
         with c_add3:
-            if st.button("➕ 목록에 추가", use_container_width=True, key="vp_new_add", disabled=not (add_item and add_spec_label)):
-                if add_item and add_spec_label:
-                    s1, s2 = spec_map[add_spec_label]
-                    key = (add_item, s1, s2)
+            # 버튼 로직 수정 (다중 추가)
+            if st.button("➕ 목록에 추가", use_container_width=True, key="vp_new_add", disabled=not (add_item and add_spec_labels)):
+                if add_item and add_spec_labels:
+                    added_cnt = 0
+                    dup_cnt = 0
+                    for label in add_spec_labels:
+                        s1, s2 = spec_map[label]
+                        key = (add_item, s1, s2)
+                        
+                        # 삭제 목록 복구
+                        if key in st.session_state.vendor_deleted_set_new:
+                            st.session_state.vendor_deleted_set_new.remove(key)
+                            added_cnt += 1
+                        # 중복 체크
+                        elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
+                            dup_cnt += 1
+                        else:
+                            st.session_state.vendor_cart_new.append({'item': add_item, 's1': s1, 's2': s2})
+                            added_cnt += 1
                     
-                    if key in st.session_state.vendor_deleted_set_new:
-                        st.session_state.vendor_deleted_set_new.remove(key)
-                        st.toast(f"✅ {add_item} (복구됨)")
-                    elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
-                        st.toast("⚠️ 이미 목록에 있습니다.")
-                    else:
-                        st.session_state.vendor_cart_new.append({'item': add_item, 's1': s1, 's2': s2})
-                        st.toast(f"✅ {add_item} 추가됨")
+                    if added_cnt > 0: st.toast(f"✅ {added_cnt}건 추가됨")
+                    if dup_cnt > 0: st.toast(f"⚠️ {dup_cnt}건 중복 제외")
 
+        # 3. 데이터 처리 및 표시 (수동 테이블)
         st.divider()
         active_cart = [x for x in st.session_state.vendor_cart_new if (x['item'], x['s1'], x['s2']) not in st.session_state.vendor_deleted_set_new]
+        
         st.subheader(f"📋 비교 리스트 ({len(active_cart)}건)")
-
+        
         if active_cart and target_vendors:
             cart_df = pd.DataFrame(active_cart)
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
@@ -450,14 +460,18 @@ def run_vendor_purchase_system():
                 aggfunc='first'
             ).reset_index()
             
-            merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
+            # 순서 보장을 위해 Loop Lookup 방식 사용
+            # (Merge는 순서가 섞일 수 있음 -> cart_df 순서대로 출력해야 함)
             
-            # [핵심] 순서가 보장된 컬럼 매칭
+            # Lookup용 Dict 생성 (Fast lookup)
+            # Key: (item, s1, s2), Value: Row Series
+            df_pivot_base.set_index(['품목', 'calc_spec', 'display_spec'], inplace=True)
+            
+            # 업체 컬럼 매칭 (선택 순서대로)
             pivot_cols = df_pivot_base.columns
             clean_to_real = {}
             for c in pivot_cols:
-                if c not in ['품목', 'calc_spec', 'display_spec']:
-                    clean_to_real[str(c).replace(' ', '')] = c
+                clean_to_real[str(c).replace(' ', '')] = c
             
             ordered_matched_cols = []
             for t in target_vendors:
@@ -465,30 +479,54 @@ def run_vendor_purchase_system():
                 if clean_t in clean_to_real:
                     ordered_matched_cols.append(clean_to_real[clean_t])
 
-            # 단위당 단가 계산
-            def apply_unit_calc(row):
-                item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
-                if '럿셀망' in item: divisor = 1.0
-                elif any(x in item for x in ['안전망', '멀티망']):
-                    nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec1)]
-                    if len(nums) >= 2: divisor = nums[0] * nums[1]
-                    elif len(nums) == 1: divisor = nums[0]
-                elif any(x in item for x in ['와이어로프', '와이어클립']):
-                    nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec1)]
-                    if nums: divisor = nums[-1]
-                if divisor == 0: divisor = 1.0
+            # 결과 데이터 구성
+            rows_for_display = []
+            for _, cart_item in cart_df.iterrows():
+                p_item = cart_item['품목']
+                p_s1 = cart_item['calc_spec']
+                p_s2 = cart_item['display_spec']
                 
-                for v in ordered_matched_cols:
-                    if v in row:
-                        val = row[v]
-                        try: row[v] = float(val) / divisor
-                        except: pass
-                return row
+                # Base Info
+                row_data = {
+                    'row_id': (p_item, p_s1, p_s2),
+                    '품목': p_item,
+                    '규격1': p_s1,
+                    '규격2': p_s2
+                }
+                
+                # Price Info
+                if (p_item, p_s1, p_s2) in df_pivot_base.index:
+                    data_row = df_pivot_base.loc[(p_item, p_s1, p_s2)]
+                    # Handle duplicate rows in source just in case
+                    if isinstance(data_row, pd.DataFrame): data_row = data_row.iloc[0]
+                    
+                    # Calc Unit Price
+                    divisor = 1.0
+                    if '럿셀망' in p_item: divisor = 1.0
+                    elif any(x in p_item for x in ['안전망', '멀티망']):
+                        nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', p_s1)]
+                        if len(nums) >= 2: divisor = nums[0] * nums[1]
+                        elif len(nums) == 1: divisor = nums[0]
+                    elif any(x in p_item for x in ['와이어로프', '와이어클립']):
+                        nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', p_s1)]
+                        if nums: divisor = nums[-1]
+                    if divisor == 0: divisor = 1.0
 
-            df_calc = merged_view.apply(apply_unit_calc, axis=1)
-            df_out = df_calc.copy()
-            
-            df_out['row_id'] = list(zip(df_out['품목'], df_out['calc_spec'], df_out['display_spec']))
+                    for v_col in ordered_matched_cols:
+                        val = data_row.get(v_col)
+                        try:
+                            val_num = float(val)
+                            row_data[v_col] = val_num / divisor
+                        except:
+                            row_data[v_col] = ""
+                else:
+                    # No data found
+                    for v_col in ordered_matched_cols:
+                        row_data[v_col] = ""
+                
+                rows_for_display.append(row_data)
+
+            df_out = pd.DataFrame(rows_for_display)
             
             # [수정] st.columns를 사용한 표 출력 (쓰레기통 버튼)
             ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
@@ -513,8 +551,8 @@ def run_vendor_purchase_system():
                     st.rerun()
                 
                 c[1].text(row['품목'])
-                c[2].text(row['calc_spec'])
-                c[3].text(row['display_spec'])
+                c[2].text(row['규격1'])
+                c[3].text(row['규격2'])
                 
                 for i, v in enumerate(ordered_matched_cols):
                     c[4+i].text(format_price_safe(row.get(v, "")))
