@@ -106,7 +106,9 @@ def run_purchase_estimate_system():
                 matches = sorted([x for x in raw_items if kw in str(x) and x not in used_items], key=natural_sort_key_simple)
                 sorted_items.extend(matches); used_items.update(matches)
             others = sorted([x for x in raw_items if x not in used_items], key=natural_sort_key_simple)
-            final_item_list = sorted_items + columns
+            
+            # 오타 수정된 부분: final_item_list = sorted_items + others
+            final_item_list = sorted_items + others
             
             selected_item = col_input1.selectbox("품목 선택", final_item_list, key="sel_item")
             available_specs = df_pivot[df_pivot[item_col] == selected_item]['통합규격'].unique().tolist()
@@ -532,7 +534,7 @@ def run_vendor_purchase_system():
                 
                 st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
             
-            # [수정] 복구 버튼 제거 후 전체 삭제 버튼으로 교체
+            # 복구 버튼 제거, 전체 삭제 버튼만 표시
             st.markdown("---")
             _, del_col = st.columns([5, 1])
             if del_col.button("🗑️ 출력된 항목 전체삭제", type="secondary", key="vp_clear_all_btn"):
