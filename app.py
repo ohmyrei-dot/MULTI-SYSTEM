@@ -298,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (선택 유지 기능 추가)
+# 4. [신규] 업체별 매입단가 조회 (멀티셀렉트 버그 수정 및 안정화)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -325,13 +325,12 @@ def run_vendor_purchase_system():
     st.markdown("매입처별 단가를 한눈에 비교하고 목록을 작성하세요.")
     st.caption("💡 멀티 셀렉트 박스에서 선택한 순서대로 표에 나열됩니다.")
 
-    # 세션 상태 초기화
     if 'vendor_cart_new' not in st.session_state:
         st.session_state.vendor_cart_new = []
     if 'vendor_deleted_set_new' not in st.session_state:
         st.session_state.vendor_deleted_set_new = set()
     if 'vp_saved_vendors' not in st.session_state:
-        st.session_state.vp_saved_vendors = [] # 업체 선택 유지용 세션
+        st.session_state.vp_saved_vendors = []
 
     file_path = '단가표.xlsx'
     if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 파일 없음"); return
@@ -359,17 +358,20 @@ def run_vendor_purchase_system():
         st.subheader("1️⃣ 업체 선택")
         all_vendors = sorted(df_purch[vendor_col].dropna().unique().astype(str))
         
-        # 세션에 저장된 값 검증 (전체 선택 옵션 포함)
-        valid_saved_vendors = [v for v in st.session_state.vp_saved_vendors if v in ['전체 선택'] + all_vendors]
-        
+        # 세션 값 복원을 위한 처리 (Streamlit의 상태 유지 방식)
+        if 'vp_vendor_ms' not in st.session_state:
+            st.session_state.vp_vendor_ms = [v for v in st.session_state.vp_saved_vendors if v in ['전체 선택'] + all_vendors]
+
+        def sync_vendors():
+            st.session_state.vp_saved_vendors = st.session_state.vp_vendor_ms
+
+        # 위젯 자체 key를 사용하여 상태 충돌 방지
         sel_vendors = st.multiselect(
             "비교할 매입처를 선택하세요 (가로 열)", 
             ['전체 선택'] + all_vendors, 
-            default=valid_saved_vendors
+            key="vp_vendor_ms",
+            on_change=sync_vendors
         )
-        
-        # 선택값 세션에 저장 (메뉴 이동 후 복귀 시 유지됨)
-        st.session_state.vp_saved_vendors = sel_vendors
         
         # 선택된 순서 유지 (target_vendors)
         if not sel_vendors:
@@ -383,7 +385,6 @@ def run_vendor_purchase_system():
         st.subheader("2️⃣ 품목 추가")
         c_add1, c_add2, c_add3 = st.columns([1.5, 2, 0.8])
         
-        # 정렬 로직
         def get_base_score(name):
             n = str(name).strip()
             if '안전망' in n: return 0
