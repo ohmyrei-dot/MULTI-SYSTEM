@@ -298,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (규격 멀티셀렉트 + 쓰레기통 버튼)
+# 4. [신규] 업체별 매입단가 조회 (선택 유지 기능 추가)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -325,10 +325,13 @@ def run_vendor_purchase_system():
     st.markdown("매입처별 단가를 한눈에 비교하고 목록을 작성하세요.")
     st.caption("💡 멀티 셀렉트 박스에서 선택한 순서대로 표에 나열됩니다.")
 
+    # 세션 상태 초기화
     if 'vendor_cart_new' not in st.session_state:
         st.session_state.vendor_cart_new = []
     if 'vendor_deleted_set_new' not in st.session_state:
         st.session_state.vendor_deleted_set_new = set()
+    if 'vp_saved_vendors' not in st.session_state:
+        st.session_state.vp_saved_vendors = [] # 업체 선택 유지용 세션
 
     file_path = '단가표.xlsx'
     if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 파일 없음"); return
@@ -356,10 +359,17 @@ def run_vendor_purchase_system():
         st.subheader("1️⃣ 업체 선택")
         all_vendors = sorted(df_purch[vendor_col].dropna().unique().astype(str))
         
-        defaults = ['가온건설', '신영산업안전', '토우코리아']
-        default_vendors = [v for v in defaults if v in all_vendors]
+        # 세션에 저장된 값 검증 (전체 선택 옵션 포함)
+        valid_saved_vendors = [v for v in st.session_state.vp_saved_vendors if v in ['전체 선택'] + all_vendors]
         
-        sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (가로 열)", ['전체 선택']+all_vendors, default=default_vendors)
+        sel_vendors = st.multiselect(
+            "비교할 매입처를 선택하세요 (가로 열)", 
+            ['전체 선택'] + all_vendors, 
+            default=valid_saved_vendors
+        )
+        
+        # 선택값 세션에 저장 (메뉴 이동 후 복귀 시 유지됨)
+        st.session_state.vp_saved_vendors = sel_vendors
         
         # 선택된 순서 유지 (target_vendors)
         if not sel_vendors:
@@ -392,12 +402,12 @@ def run_vendor_purchase_system():
         )
 
         all_items = df_sorted['품목'].unique().tolist()
-        with c_add1:
-            # 초기값 None
-            add_item = st.selectbox("품목", all_items, index=None, placeholder="품목을 선택하세요...", key="vp_new_item")
-            
+        
         spec_opts = []
         spec_map = {}
+        
+        with c_add1:
+            add_item = st.selectbox("품목", all_items, index=None, placeholder="품목을 선택하세요...", key="vp_new_item")
         
         if add_item:
             item_df = df_sorted[df_sorted['품목'] == add_item]
@@ -409,7 +419,6 @@ def run_vendor_purchase_system():
                 spec_opts.append(label); spec_map[label] = (s1, s2)
                 
         with c_add2:
-            # [수정] 멀티 셀렉트로 변경
             add_spec_labels = st.multiselect(
                 "규격 (규격1 | 규격2)", 
                 spec_opts, 
@@ -419,7 +428,6 @@ def run_vendor_purchase_system():
             )
             
         with c_add3:
-            # 버튼 로직 수정 (다중 추가)
             if st.button("➕ 목록에 추가", use_container_width=True, key="vp_new_add", disabled=not (add_item and add_spec_labels)):
                 if add_item and add_spec_labels:
                     added_cnt = 0
@@ -428,11 +436,9 @@ def run_vendor_purchase_system():
                         s1, s2 = spec_map[label]
                         key = (add_item, s1, s2)
                         
-                        # 삭제 목록 복구
                         if key in st.session_state.vendor_deleted_set_new:
                             st.session_state.vendor_deleted_set_new.remove(key)
                             added_cnt += 1
-                        # 중복 체크
                         elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
                             dup_cnt += 1
                         else:
@@ -442,7 +448,7 @@ def run_vendor_purchase_system():
                     if added_cnt > 0: st.toast(f"✅ {added_cnt}건 추가됨")
                     if dup_cnt > 0: st.toast(f"⚠️ {dup_cnt}건 중복 제외")
 
-        # 3. 데이터 처리 및 표시 (수동 테이블)
+        # 3. 데이터 처리 및 표시
         st.divider()
         active_cart = [x for x in st.session_state.vendor_cart_new if (x['item'], x['s1'], x['s2']) not in st.session_state.vendor_deleted_set_new]
         
@@ -452,7 +458,6 @@ def run_vendor_purchase_system():
             cart_df = pd.DataFrame(active_cart)
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
             
-            # Pivot raw data
             df_pivot_base = df_purch.pivot_table(
                 index=['품목', 'calc_spec', 'display_spec'],
                 columns=vendor_col,
@@ -460,18 +465,13 @@ def run_vendor_purchase_system():
                 aggfunc='first'
             ).reset_index()
             
-            # 순서 보장을 위해 Loop Lookup 방식 사용
-            # (Merge는 순서가 섞일 수 있음 -> cart_df 순서대로 출력해야 함)
+            merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
-            # Lookup용 Dict 생성 (Fast lookup)
-            # Key: (item, s1, s2), Value: Row Series
-            df_pivot_base.set_index(['품목', 'calc_spec', 'display_spec'], inplace=True)
-            
-            # 업체 컬럼 매칭 (선택 순서대로)
             pivot_cols = df_pivot_base.columns
             clean_to_real = {}
             for c in pivot_cols:
-                clean_to_real[str(c).replace(' ', '')] = c
+                if c not in ['품목', 'calc_spec', 'display_spec']:
+                    clean_to_real[str(c).replace(' ', '')] = c
             
             ordered_matched_cols = []
             for t in target_vendors:
@@ -479,59 +479,32 @@ def run_vendor_purchase_system():
                 if clean_t in clean_to_real:
                     ordered_matched_cols.append(clean_to_real[clean_t])
 
-            # 결과 데이터 구성
-            rows_for_display = []
-            for _, cart_item in cart_df.iterrows():
-                p_item = cart_item['품목']
-                p_s1 = cart_item['calc_spec']
-                p_s2 = cart_item['display_spec']
+            def apply_unit_calc(row):
+                item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
+                if '럿셀망' in item: divisor = 1.0
+                elif any(x in item for x in ['안전망', '멀티망']):
+                    nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec1)]
+                    if len(nums) >= 2: divisor = nums[0] * nums[1]
+                    elif len(nums) == 1: divisor = nums[0]
+                elif any(x in item for x in ['와이어로프', '와이어클립']):
+                    nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec1)]
+                    if nums: divisor = nums[-1]
+                if divisor == 0: divisor = 1.0
                 
-                # Base Info
-                row_data = {
-                    'row_id': (p_item, p_s1, p_s2),
-                    '품목': p_item,
-                    '규격1': p_s1,
-                    '규격2': p_s2
-                }
-                
-                # Price Info
-                if (p_item, p_s1, p_s2) in df_pivot_base.index:
-                    data_row = df_pivot_base.loc[(p_item, p_s1, p_s2)]
-                    # Handle duplicate rows in source just in case
-                    if isinstance(data_row, pd.DataFrame): data_row = data_row.iloc[0]
-                    
-                    # Calc Unit Price
-                    divisor = 1.0
-                    if '럿셀망' in p_item: divisor = 1.0
-                    elif any(x in p_item for x in ['안전망', '멀티망']):
-                        nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', p_s1)]
-                        if len(nums) >= 2: divisor = nums[0] * nums[1]
-                        elif len(nums) == 1: divisor = nums[0]
-                    elif any(x in p_item for x in ['와이어로프', '와이어클립']):
-                        nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', p_s1)]
-                        if nums: divisor = nums[-1]
-                    if divisor == 0: divisor = 1.0
+                for v in ordered_matched_cols:
+                    if v in row:
+                        val = row[v]
+                        try: row[v] = float(val) / divisor
+                        except: pass
+                return row
 
-                    for v_col in ordered_matched_cols:
-                        val = data_row.get(v_col)
-                        try:
-                            val_num = float(val)
-                            row_data[v_col] = val_num / divisor
-                        except:
-                            row_data[v_col] = ""
-                else:
-                    # No data found
-                    for v_col in ordered_matched_cols:
-                        row_data[v_col] = ""
-                
-                rows_for_display.append(row_data)
-
-            df_out = pd.DataFrame(rows_for_display)
+            df_calc = merged_view.apply(apply_unit_calc, axis=1)
+            df_out = df_calc.copy()
             
-            # [수정] st.columns를 사용한 표 출력 (쓰레기통 버튼)
+            df_out['row_id'] = list(zip(df_out['품목'], df_out['calc_spec'], df_out['display_spec']))
+            
             ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
             
-            # 헤더
             h = st.columns(ratios)
             h[0].markdown("**삭제**")
             h[1].markdown("**품목**")
@@ -540,19 +513,17 @@ def run_vendor_purchase_system():
             for i, v in enumerate(ordered_matched_cols): h[4+i].markdown(f"**{v}**")
             st.markdown("---")
             
-            # 내용
             for _, row in df_out.iterrows():
                 row_key = row['row_id']
                 c = st.columns(ratios)
                 
-                # 쓰레기통 버튼
                 if c[0].button("🗑️", key=f"btn_del_v_{row_key}"):
                     st.session_state.vendor_deleted_set_new.add(row_key)
                     st.rerun()
                 
                 c[1].text(row['품목'])
-                c[2].text(row['규격1'])
-                c[3].text(row['규격2'])
+                c[2].text(row['calc_spec'])
+                c[3].text(row['display_spec'])
                 
                 for i, v in enumerate(ordered_matched_cols):
                     c[4+i].text(format_price_safe(row.get(v, "")))
