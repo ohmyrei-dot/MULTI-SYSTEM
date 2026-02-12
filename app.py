@@ -106,7 +106,7 @@ def run_purchase_estimate_system():
                 matches = sorted([x for x in raw_items if kw in str(x) and x not in used_items], key=natural_sort_key_simple)
                 sorted_items.extend(matches); used_items.update(matches)
             others = sorted([x for x in raw_items if x not in used_items], key=natural_sort_key_simple)
-            final_item_list = sorted_items + others
+            final_item_list = sorted_items + columns
             
             selected_item = col_input1.selectbox("품목 선택", final_item_list, key="sel_item")
             available_specs = df_pivot[df_pivot[item_col] == selected_item]['통합규격'].unique().tolist()
@@ -298,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (멀티셀렉트 버그 수정 및 안정화)
+# 4. [신규] 업체별 매입단가 조회
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -385,6 +385,7 @@ def run_vendor_purchase_system():
         st.subheader("2️⃣ 품목 추가")
         c_add1, c_add2, c_add3 = st.columns([1.5, 2, 0.8])
         
+        # 정렬 로직
         def get_base_score(name):
             n = str(name).strip()
             if '안전망' in n: return 0
@@ -530,11 +531,15 @@ def run_vendor_purchase_system():
                     c[4+i].text(format_price_safe(row.get(v, "")))
                 
                 st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
-
-            if len(st.session_state.vendor_deleted_set_new) > 0:
-                if st.button("🗑️ 삭제된 항목 모두 복구"):
-                    st.session_state.vendor_deleted_set_new = set()
-                    st.rerun()
+            
+            # [수정] 복구 버튼 제거 후 전체 삭제 버튼으로 교체
+            st.markdown("---")
+            _, del_col = st.columns([5, 1])
+            if del_col.button("🗑️ 출력된 항목 전체삭제", type="secondary", key="vp_clear_all_btn"):
+                st.session_state.vendor_cart_new = []
+                st.session_state.vendor_deleted_set_new = set()
+                st.rerun()
+                
         else:
             if not target_vendors: st.info("👆 먼저 상단에서 비교할 '매입처'를 선택해주세요.")
             else: st.info("👇 품목을 선택하고 [추가] 버튼을 눌러 리스트를 작성하세요.")
