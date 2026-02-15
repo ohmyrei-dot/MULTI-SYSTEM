@@ -106,8 +106,6 @@ def run_purchase_estimate_system():
                 matches = sorted([x for x in raw_items if kw in str(x) and x not in used_items], key=natural_sort_key_simple)
                 sorted_items.extend(matches); used_items.update(matches)
             others = sorted([x for x in raw_items if x not in used_items], key=natural_sort_key_simple)
-            
-            # 오타 수정된 부분: final_item_list = sorted_items + others
             final_item_list = sorted_items + others
             
             selected_item = col_input1.selectbox("품목 선택", final_item_list, key="sel_item")
@@ -300,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회
+# 4. [신규] 업체별 매입단가 조회 (쓰레기통 버튼 + 업체 열 순서 유지 + UI 개선)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -331,8 +329,6 @@ def run_vendor_purchase_system():
         st.session_state.vendor_cart_new = []
     if 'vendor_deleted_set_new' not in st.session_state:
         st.session_state.vendor_deleted_set_new = set()
-    if 'vp_saved_vendors' not in st.session_state:
-        st.session_state.vp_saved_vendors = []
 
     file_path = '단가표.xlsx'
     if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 파일 없음"); return
@@ -360,20 +356,10 @@ def run_vendor_purchase_system():
         st.subheader("1️⃣ 업체 선택")
         all_vendors = sorted(df_purch[vendor_col].dropna().unique().astype(str))
         
-        # 세션 값 복원을 위한 처리 (Streamlit의 상태 유지 방식)
-        if 'vp_vendor_ms' not in st.session_state:
-            st.session_state.vp_vendor_ms = [v for v in st.session_state.vp_saved_vendors if v in ['전체 선택'] + all_vendors]
-
-        def sync_vendors():
-            st.session_state.vp_saved_vendors = st.session_state.vp_vendor_ms
-
-        # 위젯 자체 key를 사용하여 상태 충돌 방지
-        sel_vendors = st.multiselect(
-            "비교할 매입처를 선택하세요 (가로 열)", 
-            ['전체 선택'] + all_vendors, 
-            key="vp_vendor_ms",
-            on_change=sync_vendors
-        )
+        defaults = ['가온건설', '신영산업안전', '토우코리아']
+        default_vendors = [v for v in defaults if v in all_vendors]
+        
+        sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (가로 열)", ['전체 선택']+all_vendors, default=default_vendors)
         
         # 선택된 순서 유지 (target_vendors)
         if not sel_vendors:
@@ -406,12 +392,12 @@ def run_vendor_purchase_system():
         )
 
         all_items = df_sorted['품목'].unique().tolist()
-        
+        with c_add1:
+            # 초기값 None (Streamlit 1.29+), 아니면 그냥 첫번째
+            add_item = st.selectbox("품목", all_items, index=None, placeholder="품목을 선택하세요...", key="vp_new_item")
+            
         spec_opts = []
         spec_map = {}
-        
-        with c_add1:
-            add_item = st.selectbox("품목", all_items, index=None, placeholder="품목을 선택하세요...", key="vp_new_item")
         
         if add_item:
             item_df = df_sorted[df_sorted['품목'] == add_item]
@@ -423,6 +409,7 @@ def run_vendor_purchase_system():
                 spec_opts.append(label); spec_map[label] = (s1, s2)
                 
         with c_add2:
+            # [수정] 멀티 셀렉트로 변경
             add_spec_labels = st.multiselect(
                 "규격 (규격1 | 규격2)", 
                 spec_opts, 
@@ -432,6 +419,7 @@ def run_vendor_purchase_system():
             )
             
         with c_add3:
+            # 버튼 로직 수정 (다중 추가)
             if st.button("➕ 목록에 추가", use_container_width=True, key="vp_new_add", disabled=not (add_item and add_spec_labels)):
                 if add_item and add_spec_labels:
                     added_cnt = 0
@@ -440,9 +428,11 @@ def run_vendor_purchase_system():
                         s1, s2 = spec_map[label]
                         key = (add_item, s1, s2)
                         
+                        # 삭제 목록 복구
                         if key in st.session_state.vendor_deleted_set_new:
                             st.session_state.vendor_deleted_set_new.remove(key)
                             added_cnt += 1
+                        # 중복 체크
                         elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
                             dup_cnt += 1
                         else:
@@ -452,7 +442,7 @@ def run_vendor_purchase_system():
                     if added_cnt > 0: st.toast(f"✅ {added_cnt}건 추가됨")
                     if dup_cnt > 0: st.toast(f"⚠️ {dup_cnt}건 중복 제외")
 
-        # 3. 데이터 처리 및 표시
+        # 3. 데이터 처리 및 표시 (수동 테이블)
         st.divider()
         active_cart = [x for x in st.session_state.vendor_cart_new if (x['item'], x['s1'], x['s2']) not in st.session_state.vendor_deleted_set_new]
         
@@ -462,6 +452,7 @@ def run_vendor_purchase_system():
             cart_df = pd.DataFrame(active_cart)
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
             
+            # Pivot raw data
             df_pivot_base = df_purch.pivot_table(
                 index=['품목', 'calc_spec', 'display_spec'],
                 columns=vendor_col,
@@ -471,6 +462,7 @@ def run_vendor_purchase_system():
             
             merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
+            # [핵심] 순서가 보장된 컬럼 매칭
             pivot_cols = df_pivot_base.columns
             clean_to_real = {}
             for c in pivot_cols:
@@ -483,6 +475,7 @@ def run_vendor_purchase_system():
                 if clean_t in clean_to_real:
                     ordered_matched_cols.append(clean_to_real[clean_t])
 
+            # 단위당 단가 계산
             def apply_unit_calc(row):
                 item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
                 if '럿셀망' in item: divisor = 1.0
@@ -507,8 +500,10 @@ def run_vendor_purchase_system():
             
             df_out['row_id'] = list(zip(df_out['품목'], df_out['calc_spec'], df_out['display_spec']))
             
+            # [수정] st.columns를 사용한 표 출력 (쓰레기통 버튼)
             ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
             
+            # 헤더
             h = st.columns(ratios)
             h[0].markdown("**삭제**")
             h[1].markdown("**품목**")
@@ -521,6 +516,7 @@ def run_vendor_purchase_system():
                 row_key = row['row_id']
                 c = st.columns(ratios)
                 
+                # 쓰레기통 버튼
                 if c[0].button("🗑️", key=f"btn_del_v_{row_key}"):
                     st.session_state.vendor_deleted_set_new.add(row_key)
                     st.rerun()
@@ -552,7 +548,11 @@ def run_vendor_purchase_system():
 # 5. 메인 실행 컨트롤러
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
-    menu = st.sidebar.selectbox("기능 선택", ['매출단가 조회', '업체별 매입단가 조회', '매입견적 비교'])
-    if menu == "매입견적 비교": run_purchase_estimate_system()
-    elif menu == "매출단가 조회": run_sales_system()
-    elif menu == "업체별 매입단가 조회": run_vendor_purchase_system()
+    menu = st.sidebar.selectbox("기능 선택", ['매출단가 조회', '매입견적 비교', '업체별 매입단가 조회'])
+    
+    if menu == "매출단가 조회":
+        run_sales_system()
+    elif menu == "매입견적 비교":
+        run_purchase_estimate_system()
+    elif menu == "업체별 매입단가 조회":
+        run_vendor_purchase_system()
