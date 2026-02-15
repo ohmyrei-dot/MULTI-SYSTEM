@@ -298,7 +298,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (쓰레기통 버튼 + 업체 열 순서 유지 + UI 개선)
+# 4. [신규] 업체별 매입단가 조회 (세션 유지 적용)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -325,13 +325,17 @@ def run_vendor_purchase_system():
     st.markdown("매입처별 단가를 한눈에 비교하고 목록을 작성하세요.")
     st.caption("💡 멀티 셀렉트 박스에서 선택한 순서대로 표에 나열됩니다.")
 
+    # 세션 상태 초기화 및 데이터 유지
     if 'vendor_cart_new' not in st.session_state:
         st.session_state.vendor_cart_new = []
     if 'vendor_deleted_set_new' not in st.session_state:
         st.session_state.vendor_deleted_set_new = set()
+    # 업체 선택 값 유지를 위한 세션 변수
+    if 'vp_saved_vendors' not in st.session_state:
+        st.session_state.vp_saved_vendors = []
 
     file_path = '단가표.xlsx'
-    if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 파일 없음"); return
+    if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 없음"); return
 
     try:
         # 데이터 로드
@@ -359,7 +363,27 @@ def run_vendor_purchase_system():
         defaults = ['가온건설', '신영산업안전', '토우코리아']
         default_vendors = [v for v in defaults if v in all_vendors]
         
-        sel_vendors = st.multiselect("비교할 매입처를 선택하세요 (가로 열)", ['전체 선택']+all_vendors, default=default_vendors)
+        # 세션에 저장된 값이 없으면 기본값 사용 (최초 실행 시)
+        if not st.session_state.vp_saved_vendors:
+             current_default = default_vendors
+        else:
+             # 저장된 값 중 유효한 것만 필터링 (데이터 변경 대비)
+             current_default = [v for v in st.session_state.vp_saved_vendors if v in ['전체 선택'] + all_vendors]
+
+        # 멀티 셀렉트 (key를 사용하여 상태 자동 관리 시도 보다는 명시적 값 주입 권장)
+        # 하지만 Streamlit widget behavior상 default는 초기 로드시만 작동.
+        # 여기서는 key 없이 default 값을 동적으로 관리하거나, key를 써서 상태 유지.
+        # 가장 확실한 방법: key를 사용하지 않고 session_state 값을 default로 주되, 
+        # 사용자가 변경하면 즉시 session_state에 저장.
+        
+        sel_vendors = st.multiselect(
+            "비교할 매입처를 선택하세요 (가로 열)", 
+            ['전체 선택'] + all_vendors, 
+            default=current_default
+        )
+        
+        # 선택 변경 시 세션 업데이트 (다음 렌더링을 위해)
+        st.session_state.vp_saved_vendors = sel_vendors
         
         # 선택된 순서 유지 (target_vendors)
         if not sel_vendors:
@@ -393,7 +417,6 @@ def run_vendor_purchase_system():
 
         all_items = df_sorted['품목'].unique().tolist()
         with c_add1:
-            # 초기값 None (Streamlit 1.29+), 아니면 그냥 첫번째
             add_item = st.selectbox("품목", all_items, index=None, placeholder="품목을 선택하세요...", key="vp_new_item")
             
         spec_opts = []
@@ -409,7 +432,6 @@ def run_vendor_purchase_system():
                 spec_opts.append(label); spec_map[label] = (s1, s2)
                 
         with c_add2:
-            # [수정] 멀티 셀렉트로 변경
             add_spec_labels = st.multiselect(
                 "규격 (규격1 | 규격2)", 
                 spec_opts, 
@@ -419,7 +441,6 @@ def run_vendor_purchase_system():
             )
             
         with c_add3:
-            # 버튼 로직 수정 (다중 추가)
             if st.button("➕ 목록에 추가", use_container_width=True, key="vp_new_add", disabled=not (add_item and add_spec_labels)):
                 if add_item and add_spec_labels:
                     added_cnt = 0
@@ -428,11 +449,9 @@ def run_vendor_purchase_system():
                         s1, s2 = spec_map[label]
                         key = (add_item, s1, s2)
                         
-                        # 삭제 목록 복구
                         if key in st.session_state.vendor_deleted_set_new:
                             st.session_state.vendor_deleted_set_new.remove(key)
                             added_cnt += 1
-                        # 중복 체크
                         elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
                             dup_cnt += 1
                         else:
@@ -452,7 +471,6 @@ def run_vendor_purchase_system():
             cart_df = pd.DataFrame(active_cart)
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
             
-            # Pivot raw data
             df_pivot_base = df_purch.pivot_table(
                 index=['품목', 'calc_spec', 'display_spec'],
                 columns=vendor_col,
@@ -462,7 +480,6 @@ def run_vendor_purchase_system():
             
             merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
-            # [핵심] 순서가 보장된 컬럼 매칭
             pivot_cols = df_pivot_base.columns
             clean_to_real = {}
             for c in pivot_cols:
@@ -475,7 +492,6 @@ def run_vendor_purchase_system():
                 if clean_t in clean_to_real:
                     ordered_matched_cols.append(clean_to_real[clean_t])
 
-            # 단위당 단가 계산
             def apply_unit_calc(row):
                 item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
                 if '럿셀망' in item: divisor = 1.0
@@ -500,10 +516,8 @@ def run_vendor_purchase_system():
             
             df_out['row_id'] = list(zip(df_out['품목'], df_out['calc_spec'], df_out['display_spec']))
             
-            # [수정] st.columns를 사용한 표 출력 (쓰레기통 버튼)
             ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
             
-            # 헤더
             h = st.columns(ratios)
             h[0].markdown("**삭제**")
             h[1].markdown("**품목**")
@@ -516,7 +530,6 @@ def run_vendor_purchase_system():
                 row_key = row['row_id']
                 c = st.columns(ratios)
                 
-                # 쓰레기통 버튼
                 if c[0].button("🗑️", key=f"btn_del_v_{row_key}"):
                     st.session_state.vendor_deleted_set_new.add(row_key)
                     st.rerun()
@@ -530,7 +543,6 @@ def run_vendor_purchase_system():
                 
                 st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
             
-            # 복구 버튼 제거, 전체 삭제 버튼만 표시
             st.markdown("---")
             _, del_col = st.columns([5, 1])
             if del_col.button("🗑️ 출력된 항목 전체삭제", type="secondary", key="vp_clear_all_btn"):
