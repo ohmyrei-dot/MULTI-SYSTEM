@@ -192,7 +192,7 @@ def run_purchase_estimate_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (타입 오류 수정)
+# 3. 매출 단가 조회 시스템 (정렬 순서 수정: 안전망1cm, 2cm...)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -209,22 +209,28 @@ def run_sales_system():
         current_price_col = next((c for c in df_sales.columns if '현재매출단가' in str(c)), None)
         if not current_price_col: st.error("필수 컬럼 없음"); return
 
-        # [수정] 타입 에러 방지: 규격과 비고 컬럼을 문자열로 변환
-        df_sales['규격'] = df_sales['규격'].astype(str).replace('nan', '')
-        df_sales[note_col] = df_sales[note_col].astype(str).replace('nan', '')
-
         price_mode = st.radio("단가 표시 방식", ["기본 단가", "단위당 단가"], index=1, horizontal=True)
 
-        priority_items = [
-            '안전망', '멀티망', '럿셀망', 
-            'PE로프', 'pp로프', 'PP로프', '와이어', '와이어로프', '와이어클립', '케이블타이'
+        # [수정] 요청된 정렬 순서 적용 (상세)
+        priority_order = [
+            '안전망1cm', 
+            '안전망2cm', 
+            '안전망', # fallback
+            '멀티망', 
+            '럿셀망', 
+            'PE로프', 'pp로프', 'PP로프', 
+            '와이어로프', '와이어', 
+            '와이어클립', 
+            '케이블타이'
         ]
         
         def get_item_priority(name):
             name_str = str(name).strip()
-            for i, key in enumerate(priority_items):
-                if key in name_str: return i
-            return 999 
+            # 정확한 매칭을 위해 앞에서부터 순서대로 확인
+            for i, key in enumerate(priority_order):
+                if key in name_str:
+                    return i
+            return 999
 
         def get_note_rank(note):
             s = str(note).strip()
@@ -237,9 +243,9 @@ def run_sales_system():
         df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
         df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
         
-        # [수정] 정렬 시 키 함수 적용 (타입 안전)
+        # [중요] 품목명 자체도 정렬 기준에 포함하여 같은 우선순위 내에서 정렬
         df_sorted = df_sales.sort_values(
-            by=['rank_item', 'rank_note', 'rank_num', '규격'],
+            by=['rank_item', '품목', 'rank_note', 'rank_num', '규격'],
             key=lambda x: x.map(robust_natural_sort_key) if x.name == '규격' else x,
             ascending=True
         )
@@ -256,7 +262,7 @@ def run_sales_system():
         df_step1 = df_sorted if not sel_i_raw or '전체 선택' in sel_i_raw else df_sorted[df_sorted['품목'].isin(sel_i_raw)]
         
         all_specs = df_step1['규격'].unique().tolist()
-        all_specs = sorted(all_specs, key=robust_natural_sort_key)
+        all_specs = sorted(all_specs, key=lambda x: robust_natural_sort_key(str(x)))
         with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택']+all_specs, default=[])
         df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
         
@@ -265,7 +271,19 @@ def run_sales_system():
         df_final = df_step2 if not sel_n_raw or '전체 선택' in sel_n_raw else df_step2[df_step2[note_col].isin(sel_n_raw)]
 
         if not df_final.empty:
+            # [중요] Pivot 시 자동으로 인덱스 정렬되는 것 방지: 미리 정렬된 unique index 추출
+            unique_idx = df_final[['품목', '규격', note_col, '단위']].drop_duplicates()
+            
             df_pivot = df_final.pivot_table(index=['품목', '규격', note_col, '단위'], columns='매출업체', values=current_price_col, aggfunc='first')
+            
+            # Reindex to enforce custom sort order
+            target_index = pd.MultiIndex.from_frame(unique_idx)
+            # 교집합만 유지 (안전장치)
+            final_index = target_index.intersection(df_pivot.index)
+            # 순서 보장: target_index 순서대로 정렬
+            final_index_sorted = target_index[target_index.isin(final_index)]
+            df_pivot = df_pivot.reindex(final_index_sorted)
+
             clean_targets = [str(v).replace(' ', '') for v in sel_v]
             valid_cols = [c for c in df_pivot.columns if str(c).replace(' ', '') in clean_targets]
             df_display = df_pivot[valid_cols]
@@ -282,6 +300,7 @@ def run_sales_system():
                         m = re.search(r'(\d+)', spec); div = float(m.group(1)) if m else 1.0
                     return row.apply(lambda x: x / div if pd.notnull(x) and isinstance(x, (int, float)) and div != 0 else x)
                 df_calc = df_display.apply(unit_calc, axis=1).reset_index().drop(columns=['규격'])
+                # Re-grouping might lose order again, check if sort=False helps
                 df_display = df_calc.groupby(['품목', note_col, '단위'], sort=False).first()
 
             st.divider()
