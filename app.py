@@ -18,9 +18,8 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 def robust_natural_sort_key(s):
     """
-    [강력한 Natural Sort - Type Safe 버전]
+    [강력한 Natural Sort]
     문자열과 숫자가 섞여 있어도 에러 없이(TypeError 방지) 비교 가능하도록 변환
-    반환값: (키워드순위, ((타입, 값), (타입, 값)...))
     """
     text = str(s).strip()
     
@@ -29,20 +28,13 @@ def robust_natural_sort_key(s):
     elif '가공' in text: keyword_rank = 2
     else: keyword_rank = 1
 
-    # 2. 숫자/문자 분리 및 타입핑
-    # (0, 숫자) : 숫자가 우선
-    # (1, 문자) : 문자는 후순위
-    def convert(t):
-        if t.replace('.', '', 1).isdigit():
-            return (0, float(t))
-        return (1, t.lower())
+    # 2. 숫자/문자 분리
+    def convert(text):
+        return float(text) if text.replace('.', '', 1).isdigit() else text.lower()
     
-    # 정규식으로 숫자와 비숫자를 분리
-    parts = re.split('([0-9.]+)', text)
-    # 빈 문자열 제거 및 튜플 변환
-    alphanum_key = tuple([convert(c) for c in parts if c])
+    alphanum_key = [convert(c) for c in re.split('([0-9.]+)', text) if c]
     
-    return (keyword_rank, alphanum_key)
+    return (keyword_rank, tuple(alphanum_key))
 
 def natural_sort_key_simple(s):
     """매입견적용 단순 정렬 (기존 유지)"""
@@ -200,7 +192,7 @@ def run_purchase_estimate_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (기존 로직 유지 + 에러 방지)
+# 3. 매출 단가 조회 시스템 (품목 정렬 순서 수정)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -214,27 +206,27 @@ def run_sales_system():
         note_col = '비고 1' if '비고 1' in df_sales.columns else '비고'
         if note_col not in df_sales.columns: df_sales[note_col] = ""
         if '단위' not in df_sales.columns: df_sales['단위'] = ""
-        
-        # [수정] 규격 등 주요 컬럼 문자열 변환 (타입 에러 방지)
-        df_sales['규격'] = df_sales['규격'].astype(str)
-        df_sales[note_col] = df_sales[note_col].astype(str)
-
         current_price_col = next((c for c in df_sales.columns if '현재매출단가' in str(c)), None)
         if not current_price_col: st.error("필수 컬럼 없음"); return
 
         price_mode = st.radio("단가 표시 방식", ["기본 단가", "단위당 단가"], index=1, horizontal=True)
 
-        # 정렬 순서
+        # [수정] 정렬 키워드 로직 개선 (안전망 등 포괄적 키워드 포함)
         priority_order = [
-            '안전망1cm', '안전망2cm', '멀티망', '럿셀망', 
-            'PE로프', 'pp로프', 'PP로프', '와이어', '와이어로프', '와이어클립', '케이블타이'
+            '안전망', # 1cm, 2cm 모두 포함
+            '멀티망', 
+            '럿셀망', 
+            'PE로프', 'pp로프', 'PP로프', 
+            '와이어로프', '와이어', 
+            '와이어클립', 
+            '케이블타이'
         ]
         
         def get_item_priority(name):
             name_str = str(name).strip()
             for i, key in enumerate(priority_order):
                 if key in name_str: return i
-            return 999
+            return 999 # 목록에 없으면 맨 뒤
 
         def get_note_rank(note):
             s = str(note).strip()
@@ -247,7 +239,6 @@ def run_sales_system():
         df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
         df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
         
-        # [수정] 규격 Natural Sort 적용 (robust)
         df_sorted = df_sales.sort_values(
             by=['rank_item', 'rank_note', 'rank_num', '규격'],
             key=lambda x: x.map(robust_natural_sort_key) if x.name == '규격' else x,
@@ -266,11 +257,10 @@ def run_sales_system():
         df_step1 = df_sorted if not sel_i_raw or '전체 선택' in sel_i_raw else df_sorted[df_sorted['품목'].isin(sel_i_raw)]
         
         all_specs = df_step1['규격'].unique().tolist()
-        # [수정] 규격 리스트 정렬
-        all_specs = sorted(all_specs, key=robust_natural_sort_key)
-        
+        all_specs = sorted(all_specs, key=lambda x: robust_natural_sort_key(str(x)))
         with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택']+all_specs, default=[])
         df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
+        
         all_notes = df_step2[note_col].unique().tolist()
         with c3: sel_n_raw = st.multiselect("📝 비고", ['전체 선택']+all_notes, default=[])
         df_final = df_step2 if not sel_n_raw or '전체 선택' in sel_n_raw else df_step2[df_step2[note_col].isin(sel_n_raw)]
