@@ -192,7 +192,7 @@ def run_purchase_estimate_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (기존 로직 유지)
+# 3. 매출 단가 조회 시스템 (정렬 순서 업데이트)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -211,8 +211,13 @@ def run_sales_system():
 
         price_mode = st.radio("단가 표시 방식", ["기본 단가", "단위당 단가"], index=1, horizontal=True)
 
-        priority_items = ['안전망1cm', '안전망2cm', 'pp로프', '와이어로프', '와이어클립', '멀티망', '럿셀망', '케이블타이']
+        # [수정] 요청된 정렬 순서 적용
+        priority_items = [
+            '안전망1cm', '안전망2cm', '멀티망', '럿셀망', 
+            'pp로프', 'PP로프', '와이어로프', '와이어', '와이어클립', '케이블타이'
+        ]
         priority_map = {item: i for i, item in enumerate(priority_items)}
+        
         def get_note_rank(note):
             s = str(note).strip()
             if s == 'KS로프가공': return 2
@@ -298,7 +303,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (세션 유지 적용)
+# 4. [신규] 업체별 매입단가 조회 (쓰레기통 버튼 + 업체 열 순서 유지 + UI 개선)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -325,17 +330,15 @@ def run_vendor_purchase_system():
     st.markdown("매입처별 단가를 한눈에 비교하고 목록을 작성하세요.")
     st.caption("💡 멀티 셀렉트 박스에서 선택한 순서대로 표에 나열됩니다.")
 
-    # 세션 상태 초기화 및 데이터 유지
     if 'vendor_cart_new' not in st.session_state:
         st.session_state.vendor_cart_new = []
     if 'vendor_deleted_set_new' not in st.session_state:
         st.session_state.vendor_deleted_set_new = set()
-    # 업체 선택 값 유지를 위한 세션 변수
     if 'vp_saved_vendors' not in st.session_state:
         st.session_state.vp_saved_vendors = []
 
     file_path = '단가표.xlsx'
-    if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 없음"); return
+    if not os.path.exists(file_path): st.error(f"🚨 '{file_path}' 파일 없음"); return
 
     try:
         # 데이터 로드
@@ -363,18 +366,10 @@ def run_vendor_purchase_system():
         defaults = ['가온건설', '신영산업안전', '토우코리아']
         default_vendors = [v for v in defaults if v in all_vendors]
         
-        # 세션에 저장된 값이 없으면 기본값 사용 (최초 실행 시)
         if not st.session_state.vp_saved_vendors:
              current_default = default_vendors
         else:
-             # 저장된 값 중 유효한 것만 필터링 (데이터 변경 대비)
              current_default = [v for v in st.session_state.vp_saved_vendors if v in ['전체 선택'] + all_vendors]
-
-        # 멀티 셀렉트 (key를 사용하여 상태 자동 관리 시도 보다는 명시적 값 주입 권장)
-        # 하지만 Streamlit widget behavior상 default는 초기 로드시만 작동.
-        # 여기서는 key 없이 default 값을 동적으로 관리하거나, key를 써서 상태 유지.
-        # 가장 확실한 방법: key를 사용하지 않고 session_state 값을 default로 주되, 
-        # 사용자가 변경하면 즉시 session_state에 저장.
         
         sel_vendors = st.multiselect(
             "비교할 매입처를 선택하세요 (가로 열)", 
@@ -382,16 +377,11 @@ def run_vendor_purchase_system():
             default=current_default
         )
         
-        # 선택 변경 시 세션 업데이트 (다음 렌더링을 위해)
         st.session_state.vp_saved_vendors = sel_vendors
         
-        # 선택된 순서 유지 (target_vendors)
-        if not sel_vendors:
-             target_vendors = []
-        elif '전체 선택' in sel_vendors:
-             target_vendors = all_vendors # 전체 선택 시 가나다순
-        else:
-             target_vendors = sel_vendors # 사용자 클릭 순서 유지
+        if not sel_vendors: target_vendors = []
+        elif '전체 선택' in sel_vendors: target_vendors = all_vendors
+        else: target_vendors = sel_vendors
 
         # 2. 품목 추가
         st.subheader("2️⃣ 품목 추가")
@@ -419,9 +409,7 @@ def run_vendor_purchase_system():
         with c_add1:
             add_item = st.selectbox("품목", all_items, index=None, placeholder="품목을 선택하세요...", key="vp_new_item")
             
-        spec_opts = []
-        spec_map = {}
-        
+        spec_opts = []; spec_map = {}
         if add_item:
             item_df = df_sorted[df_sorted['품목'] == add_item]
             spec_combinations = item_df[['calc_spec', 'display_spec']].drop_duplicates().sort_values(by=['calc_spec', 'display_spec'], key=lambda x: x.map(robust_natural_sort_key))
@@ -444,24 +432,21 @@ def run_vendor_purchase_system():
             if st.button("➕ 목록에 추가", use_container_width=True, key="vp_new_add", disabled=not (add_item and add_spec_labels)):
                 if add_item and add_spec_labels:
                     added_cnt = 0
-                    dup_cnt = 0
                     for label in add_spec_labels:
                         s1, s2 = spec_map[label]
                         key = (add_item, s1, s2)
-                        
                         if key in st.session_state.vendor_deleted_set_new:
                             st.session_state.vendor_deleted_set_new.remove(key)
                             added_cnt += 1
                         elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
-                            dup_cnt += 1
+                            pass
                         else:
                             st.session_state.vendor_cart_new.append({'item': add_item, 's1': s1, 's2': s2})
                             added_cnt += 1
-                    
-                    if added_cnt > 0: st.toast(f"✅ {added_cnt}건 추가됨")
-                    if dup_cnt > 0: st.toast(f"⚠️ {dup_cnt}건 중복 제외")
+                    if added_cnt > 0: st.toast(f"✅ {added_cnt}건 추가/복구됨")
+                    else: st.toast("⚠️ 이미 목록에 있습니다.")
 
-        # 3. 데이터 처리 및 표시 (수동 테이블)
+        # 3. 데이터 처리 및 표시
         st.divider()
         active_cart = [x for x in st.session_state.vendor_cart_new if (x['item'], x['s1'], x['s2']) not in st.session_state.vendor_deleted_set_new]
         
@@ -471,26 +456,18 @@ def run_vendor_purchase_system():
             cart_df = pd.DataFrame(active_cart)
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
             
-            df_pivot_base = df_purch.pivot_table(
-                index=['품목', 'calc_spec', 'display_spec'],
-                columns=vendor_col,
-                values=price_col,
-                aggfunc='first'
-            ).reset_index()
-            
+            df_pivot_base = df_purch.pivot_table(index=['품목', 'calc_spec', 'display_spec'], columns=vendor_col, values=price_col, aggfunc='first').reset_index()
             merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
             pivot_cols = df_pivot_base.columns
             clean_to_real = {}
             for c in pivot_cols:
-                if c not in ['품목', 'calc_spec', 'display_spec']:
-                    clean_to_real[str(c).replace(' ', '')] = c
+                if c not in ['품목', 'calc_spec', 'display_spec']: clean_to_real[str(c).replace(' ', '')] = c
             
             ordered_matched_cols = []
             for t in target_vendors:
                 clean_t = str(t).replace(' ', '')
-                if clean_t in clean_to_real:
-                    ordered_matched_cols.append(clean_to_real[clean_t])
+                if clean_t in clean_to_real: ordered_matched_cols.append(clean_to_real[clean_t])
 
             def apply_unit_calc(row):
                 item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
@@ -503,7 +480,6 @@ def run_vendor_purchase_system():
                     nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec1)]
                     if nums: divisor = nums[-1]
                 if divisor == 0: divisor = 1.0
-                
                 for v in ordered_matched_cols:
                     if v in row:
                         val = row[v]
@@ -513,34 +489,23 @@ def run_vendor_purchase_system():
 
             df_calc = merged_view.apply(apply_unit_calc, axis=1)
             df_out = df_calc.copy()
-            
             df_out['row_id'] = list(zip(df_out['품목'], df_out['calc_spec'], df_out['display_spec']))
             
             ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
             
             h = st.columns(ratios)
-            h[0].markdown("**삭제**")
-            h[1].markdown("**품목**")
-            h[2].markdown("**규격1**")
-            h[3].markdown("**규격2**")
+            h[0].markdown("**삭제**"); h[1].markdown("**품목**"); h[2].markdown("**규격1**"); h[3].markdown("**규격2**")
             for i, v in enumerate(ordered_matched_cols): h[4+i].markdown(f"**{v}**")
             st.markdown("---")
             
             for _, row in df_out.iterrows():
                 row_key = row['row_id']
                 c = st.columns(ratios)
-                
                 if c[0].button("🗑️", key=f"btn_del_v_{row_key}"):
                     st.session_state.vendor_deleted_set_new.add(row_key)
                     st.rerun()
-                
-                c[1].text(row['품목'])
-                c[2].text(row['calc_spec'])
-                c[3].text(row['display_spec'])
-                
-                for i, v in enumerate(ordered_matched_cols):
-                    c[4+i].text(format_price_safe(row.get(v, "")))
-                
+                c[1].text(row['품목']); c[2].text(row['calc_spec']); c[3].text(row['display_spec'])
+                for i, v in enumerate(ordered_matched_cols): c[4+i].text(format_price_safe(row.get(v, "")))
                 st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
             
             st.markdown("---")
@@ -549,7 +514,6 @@ def run_vendor_purchase_system():
                 st.session_state.vendor_cart_new = []
                 st.session_state.vendor_deleted_set_new = set()
                 st.rerun()
-                
         else:
             if not target_vendors: st.info("👆 먼저 상단에서 비교할 '매입처'를 선택해주세요.")
             else: st.info("👇 품목을 선택하고 [추가] 버튼을 눌러 리스트를 작성하세요.")
@@ -561,10 +525,6 @@ def run_vendor_purchase_system():
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     menu = st.sidebar.selectbox("기능 선택", ['매출단가 조회', '매입견적 비교', '업체별 매입단가 조회'])
-    
-    if menu == "매출단가 조회":
-        run_sales_system()
-    elif menu == "매입견적 비교":
-        run_purchase_estimate_system()
-    elif menu == "업체별 매입단가 조회":
-        run_vendor_purchase_system()
+    if menu == "매출단가 조회": run_sales_system()
+    elif menu == "매입견적 비교": run_purchase_estimate_system()
+    elif menu == "업체별 매입단가 조회": run_vendor_purchase_system()
