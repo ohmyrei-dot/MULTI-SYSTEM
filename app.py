@@ -192,7 +192,7 @@ def run_purchase_estimate_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (품목 정렬 순서 수정)
+# 3. 매출 단가 조회 시스템 (타입 오류 수정)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -209,24 +209,22 @@ def run_sales_system():
         current_price_col = next((c for c in df_sales.columns if '현재매출단가' in str(c)), None)
         if not current_price_col: st.error("필수 컬럼 없음"); return
 
+        # [수정] 타입 에러 방지: 규격과 비고 컬럼을 문자열로 변환
+        df_sales['규격'] = df_sales['규격'].astype(str).replace('nan', '')
+        df_sales[note_col] = df_sales[note_col].astype(str).replace('nan', '')
+
         price_mode = st.radio("단가 표시 방식", ["기본 단가", "단위당 단가"], index=1, horizontal=True)
 
-        # [수정] 정렬 키워드 로직 개선 (안전망 등 포괄적 키워드 포함)
-        priority_order = [
-            '안전망', # 1cm, 2cm 모두 포함
-            '멀티망', 
-            '럿셀망', 
-            'PE로프', 'pp로프', 'PP로프', 
-            '와이어로프', '와이어', 
-            '와이어클립', 
-            '케이블타이'
+        priority_items = [
+            '안전망', '멀티망', '럿셀망', 
+            'PE로프', 'pp로프', 'PP로프', '와이어', '와이어로프', '와이어클립', '케이블타이'
         ]
         
         def get_item_priority(name):
             name_str = str(name).strip()
-            for i, key in enumerate(priority_order):
+            for i, key in enumerate(priority_items):
                 if key in name_str: return i
-            return 999 # 목록에 없으면 맨 뒤
+            return 999 
 
         def get_note_rank(note):
             s = str(note).strip()
@@ -239,6 +237,7 @@ def run_sales_system():
         df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
         df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
         
+        # [수정] 정렬 시 키 함수 적용 (타입 안전)
         df_sorted = df_sales.sort_values(
             by=['rank_item', 'rank_note', 'rank_num', '규격'],
             key=lambda x: x.map(robust_natural_sort_key) if x.name == '규격' else x,
@@ -257,7 +256,7 @@ def run_sales_system():
         df_step1 = df_sorted if not sel_i_raw or '전체 선택' in sel_i_raw else df_sorted[df_sorted['품목'].isin(sel_i_raw)]
         
         all_specs = df_step1['규격'].unique().tolist()
-        all_specs = sorted(all_specs, key=lambda x: robust_natural_sort_key(str(x)))
+        all_specs = sorted(all_specs, key=robust_natural_sort_key)
         with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택']+all_specs, default=[])
         df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
         
