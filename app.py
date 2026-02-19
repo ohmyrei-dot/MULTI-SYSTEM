@@ -192,7 +192,7 @@ def run_purchase_estimate_system():
         st.error(f"오류 발생: {e}")
 
 # -----------------------------------------------------------------------------
-# 3. 매출 단가 조회 시스템 (정렬 순서 업데이트)
+# 3. 매출 단가 조회 시스템 (정렬 순서 수정)
 # -----------------------------------------------------------------------------
 def run_sales_system():
     st.title("📈 매출 단가 조회")
@@ -211,13 +211,20 @@ def run_sales_system():
 
         price_mode = st.radio("단가 표시 방식", ["기본 단가", "단위당 단가"], index=1, horizontal=True)
 
-        # [수정] 요청된 정렬 순서 적용
-        priority_items = [
+        # [수정] 정렬 순서 업데이트 및 포함 로직 적용
+        priority_order = [
             '안전망1cm', '안전망2cm', '멀티망', '럿셀망', 
-            'pp로프', 'PP로프', '와이어로프', '와이어', '와이어클립', '케이블타이'
+            'PE로프', 'pp로프', 'PP로프', '와이어', '와이어로프', '와이어클립', '케이블타이'
         ]
-        priority_map = {item: i for i, item in enumerate(priority_items)}
         
+        def get_item_priority(name):
+            name_str = str(name).strip()
+            # 리스트에 있는 키워드가 포함되어 있으면 해당 인덱스 반환
+            for i, key in enumerate(priority_order):
+                if key in name_str:
+                    return i
+            return 999 # 목록에 없으면 맨 뒤
+
         def get_note_rank(note):
             s = str(note).strip()
             if s == 'KS로프가공': return 2
@@ -225,11 +232,16 @@ def run_sales_system():
             if 'KS' in s: return 0
             return 1
 
-        df_sales['rank_item'] = df_sales['품목'].map(lambda x: priority_map.get(x, 999))
+        df_sales['rank_item'] = df_sales['품목'].apply(get_item_priority)
         df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
         df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
         
-        df_sorted = df_sales.sort_values(by=['rank_item', 'rank_note', 'rank_num', '규격'], ascending=True)
+        # 규격 Natural Sort를 위해 key 사용
+        df_sorted = df_sales.sort_values(
+            by=['rank_item', 'rank_note', 'rank_num', '규격'],
+            key=lambda x: x.map(robust_natural_sort_key) if x.name == '규격' else x,
+            ascending=True
+        )
 
         st.subheader("🔍 데이터 필터")
         all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
@@ -241,9 +253,13 @@ def run_sales_system():
         all_items = df_sorted['품목'].unique().tolist()
         with c1: sel_i_raw = st.multiselect("📦 품목", ['전체 선택']+all_items, default=[])
         df_step1 = df_sorted if not sel_i_raw or '전체 선택' in sel_i_raw else df_sorted[df_sorted['품목'].isin(sel_i_raw)]
+        
         all_specs = df_step1['규격'].unique().tolist()
+        # 규격도 정렬해서 보여주기
+        all_specs = sorted(all_specs, key=lambda x: robust_natural_sort_key(str(x)))
         with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택']+all_specs, default=[])
         df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
+        
         all_notes = df_step2[note_col].unique().tolist()
         with c3: sel_n_raw = st.multiselect("📝 비고", ['전체 선택']+all_notes, default=[])
         df_final = df_step2 if not sel_n_raw or '전체 선택' in sel_n_raw else df_step2[df_step2[note_col].isin(sel_n_raw)]
@@ -303,7 +319,7 @@ def run_sales_system():
     except Exception as e: st.error(f"오류: {e}")
 
 # -----------------------------------------------------------------------------
-# 4. [신규] 업체별 매입단가 조회 (쓰레기통 버튼 + 업체 열 순서 유지 + UI 개선)
+# 4. [신규] 업체별 매입단가 조회 (기존 유지)
 # -----------------------------------------------------------------------------
 def run_vendor_purchase_system():
     # CSS: 테이블 스타일 조정
@@ -432,6 +448,7 @@ def run_vendor_purchase_system():
             if st.button("➕ 목록에 추가", use_container_width=True, key="vp_new_add", disabled=not (add_item and add_spec_labels)):
                 if add_item and add_spec_labels:
                     added_cnt = 0
+                    dup_cnt = 0
                     for label in add_spec_labels:
                         s1, s2 = spec_map[label]
                         key = (add_item, s1, s2)
@@ -439,14 +456,15 @@ def run_vendor_purchase_system():
                             st.session_state.vendor_deleted_set_new.remove(key)
                             added_cnt += 1
                         elif any((x['item'], x['s1'], x['s2']) == key for x in st.session_state.vendor_cart_new):
-                            pass
+                            dup_cnt += 1
                         else:
                             st.session_state.vendor_cart_new.append({'item': add_item, 's1': s1, 's2': s2})
                             added_cnt += 1
-                    if added_cnt > 0: st.toast(f"✅ {added_cnt}건 추가/복구됨")
-                    else: st.toast("⚠️ 이미 목록에 있습니다.")
+                    
+                    if added_cnt > 0: st.toast(f"✅ {added_cnt}건 추가됨")
+                    if dup_cnt > 0: st.toast(f"⚠️ {dup_cnt}건 중복 제외")
 
-        # 3. 데이터 처리 및 표시
+        # 3. 데이터 처리 및 표시 (수동 테이블)
         st.divider()
         active_cart = [x for x in st.session_state.vendor_cart_new if (x['item'], x['s1'], x['s2']) not in st.session_state.vendor_deleted_set_new]
         
@@ -456,18 +474,26 @@ def run_vendor_purchase_system():
             cart_df = pd.DataFrame(active_cart)
             cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
             
-            df_pivot_base = df_purch.pivot_table(index=['품목', 'calc_spec', 'display_spec'], columns=vendor_col, values=price_col, aggfunc='first').reset_index()
+            df_pivot_base = df_purch.pivot_table(
+                index=['품목', 'calc_spec', 'display_spec'],
+                columns=vendor_col,
+                values=price_col,
+                aggfunc='first'
+            ).reset_index()
+            
             merged_view = pd.merge(cart_df, df_pivot_base, on=['품목', 'calc_spec', 'display_spec'], how='left')
             
             pivot_cols = df_pivot_base.columns
             clean_to_real = {}
             for c in pivot_cols:
-                if c not in ['품목', 'calc_spec', 'display_spec']: clean_to_real[str(c).replace(' ', '')] = c
+                if c not in ['품목', 'calc_spec', 'display_spec']:
+                    clean_to_real[str(c).replace(' ', '')] = c
             
             ordered_matched_cols = []
             for t in target_vendors:
                 clean_t = str(t).replace(' ', '')
-                if clean_t in clean_to_real: ordered_matched_cols.append(clean_to_real[clean_t])
+                if clean_t in clean_to_real:
+                    ordered_matched_cols.append(clean_to_real[clean_t])
 
             def apply_unit_calc(row):
                 item = str(row['품목']); spec1 = str(row['calc_spec']); divisor = 1.0
@@ -480,6 +506,7 @@ def run_vendor_purchase_system():
                     nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec1)]
                     if nums: divisor = nums[-1]
                 if divisor == 0: divisor = 1.0
+                
                 for v in ordered_matched_cols:
                     if v in row:
                         val = row[v]
@@ -489,23 +516,34 @@ def run_vendor_purchase_system():
 
             df_calc = merged_view.apply(apply_unit_calc, axis=1)
             df_out = df_calc.copy()
+            
             df_out['row_id'] = list(zip(df_out['품목'], df_out['calc_spec'], df_out['display_spec']))
             
             ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
             
             h = st.columns(ratios)
-            h[0].markdown("**삭제**"); h[1].markdown("**품목**"); h[2].markdown("**규격1**"); h[3].markdown("**규격2**")
+            h[0].markdown("**삭제**")
+            h[1].markdown("**품목**")
+            h[2].markdown("**규격1**")
+            h[3].markdown("**규격2**")
             for i, v in enumerate(ordered_matched_cols): h[4+i].markdown(f"**{v}**")
             st.markdown("---")
             
             for _, row in df_out.iterrows():
                 row_key = row['row_id']
                 c = st.columns(ratios)
+                
                 if c[0].button("🗑️", key=f"btn_del_v_{row_key}"):
                     st.session_state.vendor_deleted_set_new.add(row_key)
                     st.rerun()
-                c[1].text(row['품목']); c[2].text(row['calc_spec']); c[3].text(row['display_spec'])
-                for i, v in enumerate(ordered_matched_cols): c[4+i].text(format_price_safe(row.get(v, "")))
+                
+                c[1].text(row['품목'])
+                c[2].text(row['calc_spec'])
+                c[3].text(row['display_spec'])
+                
+                for i, v in enumerate(ordered_matched_cols):
+                    c[4+i].text(format_price_safe(row.get(v, "")))
+                
                 st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
             
             st.markdown("---")
