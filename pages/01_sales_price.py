@@ -1,9 +1,22 @@
 import streamlit as st
 import pandas as pd
 import re
+import os
 import numpy as np
 
 st.set_page_config(page_title="매출단가 조회", page_icon="📈", layout="wide")
+
+# -----------------------------------------------------------------------------
+# [데이터 강제 로드 로직] 세션에 데이터가 없으면 불러오기
+# -----------------------------------------------------------------------------
+file_path = 'price_list.xlsx'
+if 'df_sales' not in st.session_state or 'df_purch' not in st.session_state:
+    if os.path.exists(file_path):
+        st.session_state['df_sales'] = pd.read_excel(file_path, sheet_name='Sales_매출단가')
+        st.session_state['df_purch'] = pd.read_excel(file_path, sheet_name='Purchase_매입단가')
+    else:
+        st.error(f"🚨 '{file_path}' 파일이 존재하지 않습니다.")
+        st.stop()
 
 # -----------------------------------------------------------------------------
 # [Helper] 유틸리티 함수
@@ -36,10 +49,6 @@ def format_price_safe(val):
 # 메인 로직
 # -----------------------------------------------------------------------------
 st.title("📈 매출단가 조회")
-
-if 'df_sales' not in st.session_state:
-    st.warning("데이터가 로드되지 않았습니다. 메인 화면(app.py)으로 이동해 데이터를 불러와주세요.")
-    st.stop()
 
 try:
     df_sales = st.session_state['df_sales'].copy()
