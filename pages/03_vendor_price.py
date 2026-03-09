@@ -153,7 +153,7 @@ try:
     st.subheader(f"📋 비교 리스트 ({len(active_cart)}건)")
     
     if active_cart and target_vendors:
-        if st.button("🗑️ 출력된 항목 전체삭제", type="secondary", key="vp_clear_all_btn"):
+        if st.button("🗑️ 출력된 항목 전체삭제", type="secondary", key="vp_clear_all_btn_top"):
             st.session_state.vendor_cart_new = []
             st.session_state.vendor_deleted_set_new = set()
             st.rerun()
@@ -215,7 +215,7 @@ try:
             c[1].text(row['품목']); c[2].text(row['calc_spec']); c[3].text(row['display_spec'])
             for i, v in enumerate(ordered_matched_cols): c[4+i].text(format_price_safe(row.get(v, "")))
             st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
-        
+            
     else:
         if not target_vendors: st.info("👆 먼저 상단에서 비교할 '매입처'를 선택해주세요.")
         else: st.info("👇 품목을 선택하고 [추가] 버튼을 눌러 리스트를 작성하세요.")
