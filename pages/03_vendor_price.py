@@ -18,9 +18,6 @@ if 'df_sales' not in st.session_state or 'df_purch' not in st.session_state:
         st.error(f"🚨 '{file_path}' 파일이 존재하지 않습니다.")
         st.stop()
 
-# -----------------------------------------------------------------------------
-# [Helper] 유틸리티 함수
-# -----------------------------------------------------------------------------
 def robust_natural_sort_key(s):
     text = str(s).strip()
     if 'KS' in text: keyword_rank = 0
@@ -39,9 +36,6 @@ def format_price_safe(val):
         return f"{int(float(val)):,}"
     except: return str(val)
 
-# -----------------------------------------------------------------------------
-# 메인 로직
-# -----------------------------------------------------------------------------
 st.markdown("""
 <style>
 div[data-testid="stColumn"] { align-items: center; }
@@ -159,6 +153,11 @@ try:
     st.subheader(f"📋 비교 리스트 ({len(active_cart)}건)")
     
     if active_cart and target_vendors:
+        if st.button("🗑️ 출력된 항목 전체삭제", type="secondary", key="vp_clear_all_btn"):
+            st.session_state.vendor_cart_new = []
+            st.session_state.vendor_deleted_set_new = set()
+            st.rerun()
+
         cart_df = pd.DataFrame(active_cart)
         cart_df['__order'] = range(len(cart_df)) 
         cart_df.rename(columns={'item': '품목', 's1': 'calc_spec', 's2': 'display_spec'}, inplace=True)
@@ -217,12 +216,6 @@ try:
             for i, v in enumerate(ordered_matched_cols): c[4+i].text(format_price_safe(row.get(v, "")))
             st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
         
-        st.markdown("---")
-        _, del_col = st.columns([5, 1])
-        if del_col.button("🗑️ 출력된 항목 전체삭제", type="secondary", key="vp_clear_all_btn"):
-            st.session_state.vendor_cart_new = []
-            st.session_state.vendor_deleted_set_new = set()
-            st.rerun()
     else:
         if not target_vendors: st.info("👆 먼저 상단에서 비교할 '매입처'를 선택해주세요.")
         else: st.info("👇 품목을 선택하고 [추가] 버튼을 눌러 리스트를 작성하세요.")
