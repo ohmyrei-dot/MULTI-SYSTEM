@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 import os
-import numpy as np
+from natsort import natsorted, natsort_keygen
 
 st.set_page_config(page_title="매출단가 조회", page_icon="📈", layout="wide")
 
@@ -21,18 +21,6 @@ if 'df_sales' not in st.session_state or 'df_purch' not in st.session_state:
 # -----------------------------------------------------------------------------
 # [Helper] 유틸리티 함수
 # -----------------------------------------------------------------------------
-def robust_natural_sort_key(s):
-    text = str(s).strip()
-    if 'KS' in text: keyword_rank = 0
-    elif '가공' in text: keyword_rank = 2
-    else: keyword_rank = 1
-
-    def convert(t):
-        return float(t) if t.replace('.', '', 1).isdigit() else t.lower()
-    
-    alphanum_key = [convert(c) for c in re.split('([0-9.]+)', text) if c]
-    return (keyword_rank, tuple(alphanum_key))
-
 def extract_number_safe(text):
     if pd.isna(text): return float('inf')
     match = re.search(r'(\d+(\.\d+)?)', str(text))
@@ -92,9 +80,10 @@ try:
     df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
     df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
     
+    # natsort를 이용한 자연어 정렬 적용
     df_sorted = df_sales.sort_values(
         by=['rank_item', 'rank_note', 'rank_num', '규격'],
-        key=lambda x: x.map(robust_natural_sort_key) if x.name == '규격' else x,
+        key=lambda x: x.map(natsort_keygen()) if x.name == '규격' else x,
         ascending=True
     )
 
@@ -115,9 +104,10 @@ try:
         df_step1 = df_sorted[df_sorted['품목'].isin(sel_i_raw)].copy()
         sorter_index = dict(zip(sel_i_raw, range(len(sel_i_raw))))
         df_step1['select_rank'] = df_step1['품목'].map(sorter_index)
-        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격'])
+        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격'], key=lambda x: x.map(natsort_keygen()) if x.name == '규격' else x)
 
-    all_specs = sorted(df_step1['규격'].unique().tolist(), key=robust_natural_sort_key)
+    # 드롭다운 리스트에도 자연어 정렬(natsorted) 적용
+    all_specs = natsorted(df_step1['규격'].unique().tolist())
     with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택'] + all_specs, default=[])
     df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
     
