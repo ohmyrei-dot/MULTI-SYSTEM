@@ -198,7 +198,8 @@ try:
 
         st.subheader("📋 업체별 현재 매출단가 비교")
         cols_config = {
-            note_col: st.column_config.TextColumn(note_col, width=None)
+            '규격': st.column_config.TextColumn("규격", width="small"),
+            note_col: st.column_config.TextColumn(note_col, width="large")
         }
         st.dataframe(
             df_display.applymap(format_price_safe), 
