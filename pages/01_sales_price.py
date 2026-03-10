@@ -6,7 +6,7 @@ import os
 st.set_page_config(page_title="매출단가 조회", page_icon="📈", layout="wide")
 
 # -----------------------------------------------------------------------------
-# [데이터 강제 로드 로직] 세션에 데이터가 없으면 불러오기
+# [데이터 강제 로드 로직]
 # -----------------------------------------------------------------------------
 file_path = 'price_list.xlsx'
 if 'df_sales' not in st.session_state or 'df_purch' not in st.session_state:
@@ -18,8 +18,14 @@ if 'df_sales' not in st.session_state or 'df_purch' not in st.session_state:
         st.stop()
 
 # -----------------------------------------------------------------------------
-# [Helper] 유틸리티 함수
+# [Helper] 완벽한 자연어 정렬을 위한 무적 함수
 # -----------------------------------------------------------------------------
+def make_sortable_string(s):
+    """문자열 내의 숫자를 10자리 소수점 포맷으로 변환하여 완벽한 문자열 정렬 지원"""
+    def pad_num(match):
+        return f"{float(match.group()):010.3f}"
+    return re.sub(r'\d+(\.\d+)?', pad_num, str(s))
+
 def extract_number_safe(text):
     if pd.isna(text): return float('inf')
     match = re.search(r'(\d+(\.\d+)?)', str(text))
@@ -31,11 +37,6 @@ def format_price_safe(val):
         if pd.isna(val) or val == "" or val == 0: return ""
         return f"{int(float(val)):,}"
     except: return str(val)
-
-# [핵심] 규격 안에서 실수(Float) 단위 숫자만 뽑아내는 무적 함수
-def get_spec_num(x):
-    nums = re.findall(r'\d+\.?\d*', str(x))
-    return float(nums[0]) if nums else 9999.0
 
 # -----------------------------------------------------------------------------
 # 메인 로직
@@ -84,11 +85,11 @@ try:
     df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
     df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
     
-    # 추출한 숫자(spec_num)를 기준으로 정렬 적용
-    df_sales['spec_num'] = df_sales['규격'].apply(get_spec_num)
+    # 완벽한 규격 정렬 키 생성
+    df_sales['규격_sort'] = df_sales['규격'].apply(make_sortable_string)
     
     df_sorted = df_sales.sort_values(
-        by=['rank_item', 'rank_note', 'rank_num', 'spec_num', '규격'],
+        by=['rank_item', 'rank_note', 'rank_num', '규격_sort'],
         ascending=True
     )
 
@@ -109,10 +110,10 @@ try:
         df_step1 = df_sorted[df_sorted['품목'].isin(sel_i_raw)].copy()
         sorter_index = dict(zip(sel_i_raw, range(len(sel_i_raw))))
         df_step1['select_rank'] = df_step1['품목'].map(sorter_index)
-        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', 'spec_num', '규격'])
+        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격_sort'])
 
-    # 셀렉트박스 리스트에도 get_spec_num 기준 정렬 적용
-    all_specs = sorted(df_step1['규격'].unique().tolist(), key=get_spec_num)
+    # 셀렉트박스 리스트 정렬
+    all_specs = sorted(df_step1['규격'].unique().tolist(), key=make_sortable_string)
     with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택'] + all_specs, default=[])
     df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
     
@@ -141,12 +142,12 @@ try:
             df_calc = df_display.apply(unit_calc, axis=1).reset_index().drop(columns=['규격'])
             df_display = df_calc.groupby(['품목', note_col, '단위'], sort=False).first()
 
-        # 출력 직전 피벗 테이블 강제 재정렬
+        # 출력 직전 피벗 테이블 100% 강제 재정렬
         df_display = df_display.reset_index()
         df_display['rank_item'] = df_display['품목'].apply(get_item_priority)
         df_display['rank_note'] = df_display[note_col].apply(get_note_rank)
         df_display['rank_num'] = df_display[note_col].apply(extract_number_safe)
-        df_display['spec_num'] = df_display['규격'].apply(get_spec_num) if '규격' in df_display.columns else 9999.0
+        df_display['규격_sort'] = df_display['규격'].apply(make_sortable_string) if '규격' in df_display.columns else ""
         
         sort_keys = []
         if sel_i_raw and '전체 선택' not in sel_i_raw:
@@ -157,11 +158,11 @@ try:
             sort_keys = ['rank_item', 'rank_note', 'rank_num']
 
         if '규격' in df_display.columns:
-            sort_keys.extend(['spec_num', '규격'])
+            sort_keys.append('규격_sort')
 
         df_display = df_display.sort_values(by=sort_keys, ascending=True)
 
-        drop_cols = ['rank_item', 'rank_note', 'rank_num', 'spec_num']
+        drop_cols = ['rank_item', 'rank_note', 'rank_num', '규격_sort']
         if 'select_rank' in df_display.columns: drop_cols.append('select_rank')
         df_display = df_display.drop(columns=[c for c in drop_cols if c in df_display.columns])
 
