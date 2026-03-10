@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 import os
-from natsort import natsorted, natsort_keygen
+from natsort import natsorted
 
 st.set_page_config(page_title="매출단가 조회", page_icon="📈", layout="wide")
 
@@ -80,10 +80,12 @@ try:
     df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
     df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
     
-    # natsort를 이용한 자연어 정렬 적용
+    # [수정] natsorted를 사용하여 규격을 자연어 정렬 기반 카테고리로 고정
+    sorted_specs = natsorted(df_sales['규격'].unique().tolist())
+    df_sales['규격_cat'] = pd.Categorical(df_sales['규격'], categories=sorted_specs, ordered=True)
+    
     df_sorted = df_sales.sort_values(
-        by=['rank_item', 'rank_note', 'rank_num', '규격'],
-        key=lambda x: x.map(natsort_keygen()) if x.name == '규격' else x,
+        by=['rank_item', 'rank_note', 'rank_num', '규격_cat'],
         ascending=True
     )
 
@@ -104,9 +106,9 @@ try:
         df_step1 = df_sorted[df_sorted['품목'].isin(sel_i_raw)].copy()
         sorter_index = dict(zip(sel_i_raw, range(len(sel_i_raw))))
         df_step1['select_rank'] = df_step1['품목'].map(sorter_index)
-        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격'], key=lambda x: x.map(natsort_keygen()) if x.name == '규격' else x)
+        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격_cat'])
 
-    # 드롭다운 리스트에도 자연어 정렬(natsorted) 적용
+    # [수정] 드롭다운 리스트에도 자연어 정렬(natsorted) 적용
     all_specs = natsorted(df_step1['규격'].unique().tolist())
     with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택'] + all_specs, default=[])
     df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
@@ -116,6 +118,10 @@ try:
     df_final = df_step2 if not sel_n_raw or '전체 선택' in sel_n_raw else df_step2[df_step2[note_col].isin(sel_n_raw)]
 
     if not df_final.empty:
+        # [수정] 최종 피벗 전에 다시 한 번 확실하게 정렬
+        sort_fields = ['select_rank', 'rank_note', 'rank_num', '규격_cat'] if 'select_rank' in df_final.columns else ['rank_item', 'rank_note', 'rank_num', '규격_cat']
+        df_final = df_final.sort_values(sort_fields)
+        
         unique_rows = df_final[['품목', '규격', note_col, '단위']].drop_duplicates()
         df_pivot = df_final.pivot_table(index=['품목', '규격', note_col, '단위'], columns='매출업체', values=current_price_col, aggfunc='first')
         
