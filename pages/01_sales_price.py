@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import re
 import os
-from natsort import natsorted, natsort_keygen
 
 st.set_page_config(page_title="매출단가 조회", page_icon="📈", layout="wide")
 
@@ -32,6 +31,11 @@ def format_price_safe(val):
         if pd.isna(val) or val == "" or val == 0: return ""
         return f"{int(float(val)):,}"
     except: return str(val)
+
+# [핵심] 규격 안에서 실수(Float) 단위 숫자만 뽑아내는 무적 함수
+def get_spec_num(x):
+    nums = re.findall(r'\d+\.?\d*', str(x))
+    return float(nums[0]) if nums else 9999.0
 
 # -----------------------------------------------------------------------------
 # 메인 로직
@@ -80,9 +84,11 @@ try:
     df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
     df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
     
+    # 추출한 숫자(spec_num)를 기준으로 정렬 적용
+    df_sales['spec_num'] = df_sales['규격'].apply(get_spec_num)
+    
     df_sorted = df_sales.sort_values(
-        by=['rank_item', 'rank_note', 'rank_num', '규격'],
-        key=lambda x: x.map(natsort_keygen()) if x.name == '규격' else x,
+        by=['rank_item', 'rank_note', 'rank_num', 'spec_num', '규격'],
         ascending=True
     )
 
@@ -103,9 +109,10 @@ try:
         df_step1 = df_sorted[df_sorted['품목'].isin(sel_i_raw)].copy()
         sorter_index = dict(zip(sel_i_raw, range(len(sel_i_raw))))
         df_step1['select_rank'] = df_step1['품목'].map(sorter_index)
-        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격'], key=lambda x: x.map(natsort_keygen()) if x.name == '규격' else x)
+        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', 'spec_num', '규격'])
 
-    all_specs = natsorted(df_step1['규격'].unique().tolist())
+    # 셀렉트박스 리스트에도 get_spec_num 기준 정렬 적용
+    all_specs = sorted(df_step1['규격'].unique().tolist(), key=get_spec_num)
     with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택'] + all_specs, default=[])
     df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
     
@@ -134,11 +141,12 @@ try:
             df_calc = df_display.apply(unit_calc, axis=1).reset_index().drop(columns=['규격'])
             df_display = df_calc.groupby(['품목', note_col, '단위'], sort=False).first()
 
-        # [핵심] 출력 직전 피벗 테이블 강제 재정렬 (자연어 정렬 완벽 보장)
+        # 출력 직전 피벗 테이블 강제 재정렬
         df_display = df_display.reset_index()
         df_display['rank_item'] = df_display['품목'].apply(get_item_priority)
         df_display['rank_note'] = df_display[note_col].apply(get_note_rank)
         df_display['rank_num'] = df_display[note_col].apply(extract_number_safe)
+        df_display['spec_num'] = df_display['규격'].apply(get_spec_num) if '규격' in df_display.columns else 9999.0
         
         sort_keys = []
         if sel_i_raw and '전체 선택' not in sel_i_raw:
@@ -149,17 +157,13 @@ try:
             sort_keys = ['rank_item', 'rank_note', 'rank_num']
 
         if '규격' in df_display.columns:
-            sort_keys.append('규격')
+            sort_keys.extend(['spec_num', '규격'])
 
-        # 규격에 natsort_keygen 적용
-        df_display = df_display.sort_values(
-            by=sort_keys,
-            key=lambda col: col.map(natsort_keygen()) if col.name == '규격' else col
-        )
+        df_display = df_display.sort_values(by=sort_keys, ascending=True)
 
-        drop_cols = ['rank_item', 'rank_note', 'rank_num']
+        drop_cols = ['rank_item', 'rank_note', 'rank_num', 'spec_num']
         if 'select_rank' in df_display.columns: drop_cols.append('select_rank')
-        df_display = df_display.drop(columns=drop_cols)
+        df_display = df_display.drop(columns=[c for c in drop_cols if c in df_display.columns])
 
         idx_cols = [c for c in ['품목', '규격', note_col, '단위'] if c in df_display.columns]
         df_display = df_display.set_index(idx_cols)
