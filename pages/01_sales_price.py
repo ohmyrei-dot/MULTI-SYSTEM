@@ -20,11 +20,10 @@ if 'df_sales' not in st.session_state or 'df_purch' not in st.session_state:
 # -----------------------------------------------------------------------------
 # [Helper] 완벽한 자연어 정렬을 위한 무적 함수
 # -----------------------------------------------------------------------------
-def make_sortable_string(s):
-    """문자열 내의 숫자를 10자리 소수점 포맷으로 변환하여 완벽한 문자열 정렬 지원"""
-    def pad_num(match):
-        return f"{float(match.group()):010.3f}"
-    return re.sub(r'\d+(\.\d+)?', pad_num, str(s))
+def spec_sort_key(s):
+    """규격에서 숫자를 튜플로 추출해 크기순으로 정렬"""
+    nums = tuple(float(x) for x in re.findall(r'\d+\.?\d*', str(s)))
+    return (nums, str(s))
 
 def extract_number_safe(text):
     if pd.isna(text): return float('inf')
@@ -86,7 +85,7 @@ try:
     df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
     
     # 완벽한 규격 정렬 키 생성
-    df_sales['규격_sort'] = df_sales['규격'].apply(make_sortable_string)
+    df_sales['규격_sort'] = df_sales['규격'].apply(spec_sort_key)
     
     df_sorted = df_sales.sort_values(
         by=['rank_item', 'rank_note', 'rank_num', '규격_sort'],
@@ -113,7 +112,7 @@ try:
         df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격_sort'])
 
     # 셀렉트박스 리스트 정렬
-    all_specs = sorted(df_step1['규격'].unique().tolist(), key=make_sortable_string)
+    all_specs = sorted(df_step1['규격'].unique().tolist(), key=spec_sort_key)
     with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택'] + all_specs, default=[])
     df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
     
@@ -144,26 +143,24 @@ try:
 
         # 출력 직전 피벗 테이블 100% 강제 재정렬
         df_display = df_display.reset_index()
-        df_display['rank_item'] = df_display['품목'].apply(get_item_priority)
-        df_display['rank_note'] = df_display[note_col].apply(get_note_rank)
-        df_display['rank_num'] = df_display[note_col].apply(extract_number_safe)
-        df_display['규격_sort'] = df_display['규격'].apply(make_sortable_string) if '규격' in df_display.columns else ""
         
-        sort_keys = []
         if sel_i_raw and '전체 선택' not in sel_i_raw:
             sorter_dict = dict(zip(sel_i_raw, range(len(sel_i_raw))))
-            df_display['select_rank'] = df_display['품목'].map(sorter_dict)
-            sort_keys = ['select_rank', 'rank_note', 'rank_num']
+            df_display['select_rank'] = df_display['품목'].map(sorter_dict).fillna(999)
         else:
-            sort_keys = ['rank_item', 'rank_note', 'rank_num']
+            df_display['select_rank'] = df_display['품목'].apply(get_item_priority)
 
-        if '규격' in df_display.columns:
-            sort_keys.append('규격_sort')
+        def create_sort_tuple(row):
+            r_item = row.get('select_rank', 999)
+            r_note1 = get_note_rank(row[note_col])
+            r_note2 = extract_number_safe(row[note_col])
+            r_spec = spec_sort_key(row['규격']) if '규격' in row else ((), "")
+            return (r_item, r_note1, r_note2, r_spec)
 
-        df_display = df_display.sort_values(by=sort_keys, ascending=True)
+        df_display['sort_key'] = df_display.apply(create_sort_tuple, axis=1)
+        df_display = df_display.sort_values(by='sort_key', ascending=True)
 
-        drop_cols = ['rank_item', 'rank_note', 'rank_num', '규격_sort']
-        if 'select_rank' in df_display.columns: drop_cols.append('select_rank')
+        drop_cols = ['sort_key', 'select_rank']
         df_display = df_display.drop(columns=[c for c in drop_cols if c in df_display.columns])
 
         idx_cols = [c for c in ['품목', '규격', note_col, '단위'] if c in df_display.columns]
