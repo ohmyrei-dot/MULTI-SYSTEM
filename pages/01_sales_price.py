@@ -163,17 +163,19 @@ try:
         drop_cols = ['sort_key', 'select_rank']
         df_display = df_display.drop(columns=[c for c in drop_cols if c in df_display.columns])
 
-        idx_cols = [c for c in ['품목', '규격', note_col, '단위'] if c in df_display.columns]
-        df_display = df_display.set_index(idx_cols)
+        # 인덱스로 묶지 않고 일반 컬럼으로 유지해야 칸 너비 조절이 정상 작동함
+        base_cols = [c for c in ['품목', '규격', note_col, '단위'] if c in df_display.columns]
 
         st.divider()
         sort_opts = ["선택 안함"]
         row_map = {}
-        for idx in df_display.index:
-            label = str(idx)
-            if isinstance(idx, tuple):
-                label = f"{idx[0]} ({idx[1]})" if price_mode=="단위당 단가" else f"{idx[0]} ({idx[2]})"
-            sort_opts.append(label); row_map[label] = idx
+        for idx, row in df_display.iterrows():
+            if price_mode == "단위당 단가":
+                label = f"{row.get('품목','')} ({row.get('규격','')})"
+            else:
+                label = f"{row.get('품목','')} ({row.get(note_col,'')})"
+            sort_opts.append(label)
+            row_map[label] = idx
 
         cs1, cs2 = st.columns([2, 1])
         with cs1: s_opt = st.selectbox("📊 열 정렬 기준 품목", sort_opts)
@@ -183,16 +185,21 @@ try:
             try:
                 t_idx = row_map[s_opt]
                 t_row = df_display.loc[t_idx]
-                if isinstance(t_row, pd.DataFrame): t_row = t_row.iloc[0]
                 is_rev = "높은" in s_ord
-                def s_key(c): v = t_row[c]; return float('inf') if pd.isna(v) or v==0 or v=="" else v
-                sorted_cols = sorted(df_display.columns, key=lambda c: -s_key(c) if is_rev and s_key(c)!=float('inf') else s_key(c))
+                def s_key(c): 
+                    v = t_row[c]
+                    return float('inf') if pd.isna(v) or v==0 or v=="" else float(v)
+                
+                val_cols = [c for c in df_display.columns if c not in base_cols]
+                
                 if is_rev:
-                    cols_val = [c for c in df_display.columns if s_key(c) != float('inf')]
-                    cols_nan = [c for c in df_display.columns if s_key(c) == float('inf')]
-                    sorted_cols = sorted(cols_val, key=s_key, reverse=True) + cols_nan
-                else: sorted_cols = sorted(df_display.columns, key=s_key)
-                df_display = df_display[sorted_cols]
+                    cols_val = [c for c in val_cols if s_key(c) != float('inf')]
+                    cols_nan = [c for c in val_cols if s_key(c) == float('inf')]
+                    val_cols_sorted = sorted(cols_val, key=s_key, reverse=True) + cols_nan
+                else: 
+                    val_cols_sorted = sorted(val_cols, key=s_key)
+                
+                df_display = df_display[base_cols + val_cols_sorted]
                 st.toast("정렬 완료")
             except: pass
 
@@ -201,9 +208,13 @@ try:
             '규격': st.column_config.TextColumn("규격", width="small"),
             note_col: st.column_config.TextColumn(note_col, width="large")
         }
+        
+        formatted_df = df_display.map(format_price_safe) if hasattr(df_display, 'map') else df_display.applymap(format_price_safe)
+        
         st.dataframe(
-            df_display.applymap(format_price_safe), 
-            use_container_width=False,
+            formatted_df, 
+            use_container_width=True,
+            hide_index=True,
             column_config=cols_config
         )
 except Exception as e: 
