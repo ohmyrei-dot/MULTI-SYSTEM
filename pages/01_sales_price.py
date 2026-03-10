@@ -6,7 +6,7 @@ import os
 st.set_page_config(page_title="매출단가 조회", page_icon="📈", layout="wide")
 
 # -----------------------------------------------------------------------------
-# [데이터 강제 로드 로직]
+# [데이터 강제 로드 로직] 세션에 데이터가 없으면 불러오기
 # -----------------------------------------------------------------------------
 file_path = 'price_list.xlsx'
 if 'df_sales' not in st.session_state or 'df_purch' not in st.session_state:
@@ -18,12 +18,19 @@ if 'df_sales' not in st.session_state or 'df_purch' not in st.session_state:
         st.stop()
 
 # -----------------------------------------------------------------------------
-# [Helper] 완벽한 자연어 정렬을 위한 무적 함수
+# [Helper] 유틸리티 함수
 # -----------------------------------------------------------------------------
-def spec_sort_key(s):
-    """규격에서 숫자를 튜플로 추출해 크기순으로 정렬"""
-    nums = tuple(float(x) for x in re.findall(r'\d+\.?\d*', str(s)))
-    return (nums, str(s))
+def robust_natural_sort_key(s):
+    text = str(s).strip()
+    if 'KS' in text: keyword_rank = 0
+    elif '가공' in text: keyword_rank = 2
+    else: keyword_rank = 1
+
+    def convert(t):
+        return float(t) if t.replace('.', '', 1).isdigit() else t.lower()
+    
+    alphanum_key = [convert(c) for c in re.split('([0-9.]+)', text) if c]
+    return (keyword_rank, tuple(alphanum_key))
 
 def extract_number_safe(text):
     if pd.isna(text): return float('inf')
@@ -84,11 +91,9 @@ try:
     df_sales['rank_note'] = df_sales[note_col].apply(get_note_rank)
     df_sales['rank_num'] = df_sales[note_col].apply(extract_number_safe)
     
-    # 완벽한 규격 정렬 키 생성
-    df_sales['규격_sort'] = df_sales['규격'].apply(spec_sort_key)
-    
     df_sorted = df_sales.sort_values(
-        by=['rank_item', 'rank_note', 'rank_num', '규격_sort'],
+        by=['rank_item', 'rank_note', 'rank_num', '규격'],
+        key=lambda x: x.map(robust_natural_sort_key) if x.name == '규격' else x,
         ascending=True
     )
 
@@ -109,10 +114,10 @@ try:
         df_step1 = df_sorted[df_sorted['품목'].isin(sel_i_raw)].copy()
         sorter_index = dict(zip(sel_i_raw, range(len(sel_i_raw))))
         df_step1['select_rank'] = df_step1['품목'].map(sorter_index)
-        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격_sort'])
+        df_step1['select_rank'] = df_step1['select_rank'].fillna(999) # NaN 처리
+        df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격'])
 
-    # 셀렉트박스 리스트 정렬
-    all_specs = sorted(df_step1['규격'].unique().tolist(), key=spec_sort_key)
+    all_specs = sorted(df_step1['규격'].unique().tolist(), key=robust_natural_sort_key)
     with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택'] + all_specs, default=[])
     df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
     
@@ -121,8 +126,14 @@ try:
     df_final = df_step2 if not sel_n_raw or '전체 선택' in sel_n_raw else df_step2[df_step2[note_col].isin(sel_n_raw)]
 
     if not df_final.empty:
+        unique_rows = df_final[['품목', '규격', note_col, '단위']].drop_duplicates()
         df_pivot = df_final.pivot_table(index=['품목', '규격', note_col, '단위'], columns='매출업체', values=current_price_col, aggfunc='first')
         
+        target_index = pd.MultiIndex.from_frame(unique_rows)
+        final_index = target_index.intersection(df_pivot.index)
+        final_index_sorted = target_index[target_index.isin(final_index)]
+        df_pivot = df_pivot.reindex(final_index_sorted)
+
         clean_targets = [str(v).replace(' ', '') for v in sel_v]
         valid_cols = [c for c in df_pivot.columns if str(c).replace(' ', '') in clean_targets]
         df_display = df_pivot[valid_cols]
@@ -141,41 +152,14 @@ try:
             df_calc = df_display.apply(unit_calc, axis=1).reset_index().drop(columns=['규격'])
             df_display = df_calc.groupby(['품목', note_col, '단위'], sort=False).first()
 
-        # 출력 직전 피벗 테이블 100% 강제 재정렬
-        df_display = df_display.reset_index()
-        
-        if sel_i_raw and '전체 선택' not in sel_i_raw:
-            sorter_dict = dict(zip(sel_i_raw, range(len(sel_i_raw))))
-            df_display['select_rank'] = df_display['품목'].map(sorter_dict).fillna(999)
-        else:
-            df_display['select_rank'] = df_display['품목'].apply(get_item_priority)
-
-        def create_sort_tuple(row):
-            r_item = row.get('select_rank', 999)
-            r_note1 = get_note_rank(row[note_col])
-            r_note2 = extract_number_safe(row[note_col])
-            r_spec = spec_sort_key(row['규격']) if '규격' in row else ((), "")
-            return (r_item, r_note1, r_note2, r_spec)
-
-        df_display['sort_key'] = df_display.apply(create_sort_tuple, axis=1)
-        df_display = df_display.sort_values(by='sort_key', ascending=True)
-
-        drop_cols = ['sort_key', 'select_rank']
-        df_display = df_display.drop(columns=[c for c in drop_cols if c in df_display.columns])
-
-        # 인덱스로 묶지 않고 일반 컬럼으로 유지해야 칸 너비 조절이 정상 작동함
-        base_cols = [c for c in ['품목', '규격', note_col, '단위'] if c in df_display.columns]
-
         st.divider()
         sort_opts = ["선택 안함"]
         row_map = {}
-        for idx, row in df_display.iterrows():
-            if price_mode == "단위당 단가":
-                label = f"{row.get('품목','')} ({row.get('규격','')})"
-            else:
-                label = f"{row.get('품목','')} ({row.get(note_col,'')})"
-            sort_opts.append(label)
-            row_map[label] = idx
+        for idx in df_display.index:
+            label = str(idx)
+            if isinstance(idx, tuple):
+                label = f"{idx[0]} ({idx[1]})" if price_mode=="단위당 단가" else f"{idx[0]} ({idx[2]})"
+            sort_opts.append(label); row_map[label] = idx
 
         cs1, cs2 = st.columns([2, 1])
         with cs1: s_opt = st.selectbox("📊 열 정렬 기준 품목", sort_opts)
@@ -185,34 +169,31 @@ try:
             try:
                 t_idx = row_map[s_opt]
                 t_row = df_display.loc[t_idx]
+                if isinstance(t_row, pd.DataFrame): t_row = t_row.iloc[0]
                 is_rev = "높은" in s_ord
-                def s_key(c): 
-                    v = t_row[c]
-                    return float('inf') if pd.isna(v) or v==0 or v=="" else float(v)
-                
-                val_cols = [c for c in df_display.columns if c not in base_cols]
-                
+                def s_key(c): v = t_row[c]; return float('inf') if pd.isna(v) or v==0 or v=="" else v
+                sorted_cols = sorted(df_display.columns, key=lambda c: -s_key(c) if is_rev and s_key(c)!=float('inf') else s_key(c))
                 if is_rev:
-                    cols_val = [c for c in val_cols if s_key(c) != float('inf')]
-                    cols_nan = [c for c in val_cols if s_key(c) == float('inf')]
-                    val_cols_sorted = sorted(cols_val, key=s_key, reverse=True) + cols_nan
-                else: 
-                    val_cols_sorted = sorted(val_cols, key=s_key)
-                
-                df_display = df_display[base_cols + val_cols_sorted]
+                    cols_val = [c for c in df_display.columns if s_key(c) != float('inf')]
+                    cols_nan = [c for c in df_display.columns if s_key(c) == float('inf')]
+                    sorted_cols = sorted(cols_val, key=s_key, reverse=True) + cols_nan
+                else: sorted_cols = sorted(df_display.columns, key=s_key)
+                df_display = df_display[sorted_cols]
                 st.toast("정렬 완료")
             except: pass
 
         st.subheader("📋 업체별 현재 매출단가 비교")
+        
+        # [수정] 인덱스를 풀어 일반 컬럼으로 변환해야 너비 조절이 먹힙니다.
+        final_display_df = df_display.reset_index()
+        
         cols_config = {
-            '규격': st.column_config.TextColumn("규격", width="small"),
+            "규격": st.column_config.TextColumn("규격", width="small"),
             note_col: st.column_config.TextColumn(note_col, width="large")
         }
         
-        formatted_df = df_display.map(format_price_safe) if hasattr(df_display, 'map') else df_display.applymap(format_price_safe)
-        
         st.dataframe(
-            formatted_df, 
+            final_display_df.applymap(format_price_safe) if hasattr(final_display_df, 'applymap') else final_display_df.map(format_price_safe), 
             use_container_width=True,
             hide_index=True,
             column_config=cols_config
