@@ -203,7 +203,7 @@ try:
         }
         st.dataframe(
             df_display.applymap(format_price_safe), 
-            use_container_width=True,
+            use_container_width=False,
             column_config=cols_config
         )
 except Exception as e: 
