@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 import os
+import numpy as np
 
 st.set_page_config(page_title="매출단가 조회", page_icon="📈", layout="wide")
 
@@ -114,7 +115,6 @@ try:
         df_step1 = df_sorted[df_sorted['품목'].isin(sel_i_raw)].copy()
         sorter_index = dict(zip(sel_i_raw, range(len(sel_i_raw))))
         df_step1['select_rank'] = df_step1['품목'].map(sorter_index)
-        df_step1['select_rank'] = df_step1['select_rank'].fillna(999) # NaN 처리
         df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격'])
 
     all_specs = sorted(df_step1['규격'].unique().tolist(), key=robust_natural_sort_key)
@@ -183,19 +183,12 @@ try:
             except: pass
 
         st.subheader("📋 업체별 현재 매출단가 비교")
-        
-        # [수정] 인덱스를 풀어 일반 컬럼으로 변환해야 너비 조절이 먹힙니다.
-        final_display_df = df_display.reset_index()
-        
         cols_config = {
-            "규격": st.column_config.TextColumn("규격", width="small"),
-            note_col: st.column_config.TextColumn(note_col, width="large")
+            note_col: st.column_config.TextColumn(note_col, width=None)
         }
-        
         st.dataframe(
-            final_display_df.applymap(format_price_safe) if hasattr(final_display_df, 'applymap') else final_display_df.map(format_price_safe), 
+            df_display.applymap(format_price_safe), 
             use_container_width=True,
-            hide_index=True,
             column_config=cols_config
         )
 except Exception as e: 
