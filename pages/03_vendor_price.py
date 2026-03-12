@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 import os
-import numpy as np
+import math
 
 st.set_page_config(page_title="매출단가 조회", page_icon="📈", layout="wide")
 
@@ -144,7 +144,7 @@ try:
             def unit_calc(row):
                 iname = str(row.name[0]); spec = str(row.name[1]); div = 1.0
                 if any(x in iname for x in ['안전망', '멀티망']):
-                    nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]; div = np.prod(nums) if nums else 1.0
+                    nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]; div = math.prod(nums) if nums else 1.0
                 elif '와이어로프' in iname:
                     m = re.search(r'\*\s*(\d+)', spec); div = float(m.group(1)) if m else 1.0
                 elif '와이어클립' in iname:
