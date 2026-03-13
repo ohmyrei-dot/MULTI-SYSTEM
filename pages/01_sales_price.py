@@ -101,15 +101,15 @@ try:
     st.subheader("🔍 데이터 필터")
     all_vendors = sorted(df_sales['매출업체'].dropna().unique().astype(str))
     def_v = ['가온건설', '신영산업안전', '네오이앤씨', '동원', '우주안전', '세종스틸', '제이엠산업개발', '전진산업안전', '씨에스산업건설', '타포', '경원안전', '토우코리아']
-    sel_v_raw = st.multiselect("🏢 조회할 업체 선택", ['전체 선택'] + all_vendors, default=[v for v in def_v if v in all_vendors])
-    sel_v = all_vendors if '전체 선택' in sel_v_raw else sel_v_raw
+    sel_v_raw = st.multiselect("🏢 조회할 업체 선택", all_vendors, default=[v for v in def_v if v in all_vendors], placeholder="전체 업체 (클릭해서 선택)")
+    sel_v = all_vendors if not sel_v_raw else sel_v_raw
 
     c1, c2, c3 = st.columns(3)
-    all_items = df_sorted['품목'].unique().tolist()
+    all_items = [x for x in df_sorted['품목'].unique().tolist() if str(x).strip() != ""]
     
-    with c1: sel_i_raw = st.multiselect("📦 품목", ['전체 선택'] + all_items, default=[])
+    with c1: sel_i_raw = st.multiselect("📦 품목", all_items, default=[], placeholder="전체 품목 (클릭해서 선택)")
     
-    if not sel_i_raw or '전체 선택' in sel_i_raw:
+    if not sel_i_raw:
         df_step1 = df_sorted
     else:
         df_step1 = df_sorted[df_sorted['품목'].isin(sel_i_raw)].copy()
@@ -118,13 +118,13 @@ try:
         df_step1['select_rank'] = df_step1['select_rank'].fillna(999) # NaN 처리
         df_step1 = df_step1.sort_values(['select_rank', 'rank_note', 'rank_num', '규격'])
 
-    all_specs = sorted(df_step1['규격'].unique().tolist(), key=robust_natural_sort_key)
-    with c2: sel_s_raw = st.multiselect("📏 규격", ['전체 선택'] + all_specs, default=[])
-    df_step2 = df_step1 if not sel_s_raw or '전체 선택' in sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
+    all_specs = [x for x in sorted(df_step1['규격'].unique().tolist(), key=robust_natural_sort_key) if str(x).strip() != ""]
+    with c2: sel_s_raw = st.multiselect("📏 규격", all_specs, default=[], placeholder="전체 규격 (클릭해서 선택)")
+    df_step2 = df_step1 if not sel_s_raw else df_step1[df_step1['규격'].isin(sel_s_raw)]
     
-    all_notes = df_step2[note_col].unique().tolist()
-    with c3: sel_n_raw = st.multiselect("📝 비고", ['전체 선택'] + all_notes, default=[])
-    df_final = df_step2 if not sel_n_raw or '전체 선택' in sel_n_raw else df_step2[df_step2[note_col].isin(sel_n_raw)]
+    all_notes = [x for x in df_step2[note_col].unique().tolist() if str(x).strip() != ""]
+    with c3: sel_n_raw = st.multiselect("📝 비고", all_notes, default=[], placeholder="전체 비고 (클릭해서 선택)")
+    df_final = df_step2 if not sel_n_raw else df_step2[df_step2[note_col].isin(sel_n_raw)]
 
     if not df_final.empty:
         unique_rows = df_final[['품목', '규격', note_col, '단위']].drop_duplicates()
