@@ -185,14 +185,16 @@ try:
 
         st.subheader("📋 업체별 현재 매출단가 비교")
         
-        # 모바일 틀고정(가로 스크롤 고정)을 위해 인덱스 유지 (reset_index 제거)
+        # '품목'만 인덱스로 남겨서 틀고정하고, 나머지는 열 너비 조절
+        final_df = df_display.reset_index().set_index('품목')
+        
         cols_config = {
             "규격": st.column_config.TextColumn("규격", width="small"),
-            note_col: st.column_config.TextColumn(note_col, width="small")
+            note_col: st.column_config.TextColumn(note_col, width="medium")
         }
         
         st.dataframe(
-            df_display.applymap(format_price_safe) if hasattr(df_display, 'applymap') else df_display.map(format_price_safe), 
+            final_df.applymap(format_price_safe) if hasattr(final_df, 'applymap') else final_df.map(format_price_safe), 
             use_container_width=True,
             column_config=cols_config
         )
