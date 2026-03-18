@@ -190,7 +190,7 @@ try:
         
         cols_config = {
             "규격": st.column_config.TextColumn("규격", width="small"),
-            note_col: st.column_config.TextColumn(note_col, width="large")
+            note_col: st.column_config.TextColumn(note_col, width="medium")
         }
         
         st.dataframe(
