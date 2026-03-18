@@ -185,18 +185,15 @@ try:
 
         st.subheader("📋 업체별 현재 매출단가 비교")
         
-        # 표 너비 조절을 위해 인덱스를 해제하고 설정
-        final_df = df_display.reset_index()
-        
+        # 모바일 틀고정(가로 스크롤 고정)을 위해 인덱스 유지 (reset_index 제거)
         cols_config = {
             "규격": st.column_config.TextColumn("규격", width="small"),
             note_col: st.column_config.TextColumn(note_col, width="small")
         }
         
         st.dataframe(
-            final_df.applymap(format_price_safe) if hasattr(final_df, 'applymap') else final_df.map(format_price_safe), 
+            df_display.applymap(format_price_safe) if hasattr(df_display, 'applymap') else df_display.map(format_price_safe), 
             use_container_width=True,
-            hide_index=True,
             column_config=cols_config
         )
 except Exception as e: 
