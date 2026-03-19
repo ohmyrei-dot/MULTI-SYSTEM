@@ -185,8 +185,8 @@ try:
 
         st.subheader("📋 업체별 현재 매출단가 비교")
         
-        # '품목'만 인덱스로 남겨서 틀고정하고, 나머지는 열 너비 조절
-        final_df = df_display.reset_index().set_index('품목')
+        # '품목'과 비고 컬럼 두 개를 인덱스로 지정해서 틀고정
+        final_df = df_display.reset_index().set_index(['품목', note_col])
         
         cols_config = {
             "규격": st.column_config.TextColumn("규격", width="small"),
