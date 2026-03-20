@@ -200,9 +200,16 @@ try:
         drop_cols = [c for c in ['품목', '규격', note_col] if c in final_df.columns]
         final_df = final_df.drop(columns=drop_cols).set_index('품목정보')
         
+        # 기본 단가일 때 칸 너비를 더 넓게 설정 (숫자로 픽셀 조절 가능)
+        info_width = 350 if price_mode == "기본 단가" else 250
+        cols_config = {
+            "품목정보": st.column_config.TextColumn("품목정보", width=info_width)
+        }
+        
         st.dataframe(
             final_df.applymap(format_price_safe) if hasattr(final_df, 'applymap') else final_df.map(format_price_safe), 
-            use_container_width=True
+            use_container_width=True,
+            column_config=cols_config
         )
 except Exception as e: 
     st.error(f"오류: {e}")
