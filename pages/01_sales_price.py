@@ -201,7 +201,7 @@ try:
         final_df = final_df.drop(columns=drop_cols).set_index('품목정보')
         
         # 기본 단가일 때 칸 너비를 더 넓게 설정 (숫자로 픽셀 조절 가능)
-        info_width = 350 if price_mode == "기본 단가" else 250
+        info_width = 300 if price_mode == "기본 단가" else 250
         cols_config = {
             "품목정보": st.column_config.TextColumn("품목정보", width=info_width)
         }
