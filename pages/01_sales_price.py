@@ -185,19 +185,24 @@ try:
 
         st.subheader("📋 업체별 현재 매출단가 비교")
         
-        # 모바일 다중 인덱스 버그 우회: 품목과 비고를 합친 새로운 단일 인덱스 생성
+        # 품목, 규격, 비고를 모두 합쳐서 단일 인덱스(틀고정) 생성
         final_df = df_display.reset_index()
-        final_df['품목(비고)'] = final_df.apply(lambda x: f"{x['품목']} ({x[note_col]})" if str(x[note_col]).strip() else x['품목'], axis=1)
-        final_df = final_df.drop(columns=['품목', note_col]).set_index('품목(비고)')
+        def combine_info(x):
+            res = str(x['품목'])
+            extras = []
+            if '규격' in x and str(x['규격']).strip() and str(x['규격']) != 'nan': extras.append(str(x['규격']))
+            if note_col in x and str(x[note_col]).strip() and str(x[note_col]) != 'nan': extras.append(str(x[note_col]))
+            if extras:
+                res += f" ({' / '.join(extras)})"
+            return res
         
-        cols_config = {
-            "규격": st.column_config.TextColumn("규격", width="small")
-        }
+        final_df['품목정보'] = final_df.apply(combine_info, axis=1)
+        drop_cols = [c for c in ['품목', '규격', note_col] if c in final_df.columns]
+        final_df = final_df.drop(columns=drop_cols).set_index('품목정보')
         
         st.dataframe(
             final_df.applymap(format_price_safe) if hasattr(final_df, 'applymap') else final_df.map(format_price_safe), 
-            use_container_width=True,
-            column_config=cols_config
+            use_container_width=True
         )
 except Exception as e: 
     st.error(f"오류: {e}")
