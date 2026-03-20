@@ -185,12 +185,13 @@ try:
 
         st.subheader("📋 업체별 현재 매출단가 비교")
         
-        # '품목'과 비고 컬럼 두 개를 인덱스로 지정해서 틀고정
-        final_df = df_display.reset_index().set_index(['품목', note_col])
+        # 모바일 다중 인덱스 버그 우회: 품목과 비고를 합친 새로운 단일 인덱스 생성
+        final_df = df_display.reset_index()
+        final_df['품목(비고)'] = final_df.apply(lambda x: f"{x['품목']} ({x[note_col]})" if str(x[note_col]).strip() else x['품목'], axis=1)
+        final_df = final_df.drop(columns=['품목', note_col]).set_index('품목(비고)')
         
         cols_config = {
-            "규격": st.column_config.TextColumn("규격", width="small"),
-            note_col: st.column_config.TextColumn(note_col, width="medium")
+            "규격": st.column_config.TextColumn("규격", width="small")
         }
         
         st.dataframe(
