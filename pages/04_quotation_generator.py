@@ -1,23 +1,24 @@
 import streamlit as st
 import pandas as pd
 import re
+import datetime
 
 st.set_page_config(page_title="견적서 작성", page_icon="📄", layout="wide")
 
 # 1. 기본 단가 리스트 (하드코딩)
 DEFAULT_PRICES = [
-    {"번호": 1, "품명": "안전망 2cm", "규격": "미가공", "단위": "m2", "수량": None, "단가(원)": 700, "금액(원)": None, "비고": ""},
-    {"번호": 2, "품명": "안전망 2cm", "규격": "6mm가공", "단위": "m2", "수량": None, "단가(원)": 1050, "금액(원)": None, "비고": ""},
-    {"번호": 3, "품명": "안전망 2cm", "규격": "8mm가공", "단위": "m2", "수량": None, "단가(원)": 1100, "금액(원)": None, "비고": ""},
-    {"번호": 4, "품명": "안전망 2cm", "규격": "10mm가공", "단위": "m2", "수량": None, "단가(원)": 1250, "금액(원)": None, "비고": ""},
-    {"번호": 5, "품명": "안전망 2cm 방염", "규격": "미가공", "단위": "m2", "수량": None, "단가(원)": 900, "금액(원)": None, "비고": ""},
-    {"번호": 6, "품명": "안전망 2cm 방염", "규격": "6mm가공", "단위": "m2", "수량": None, "단가(원)": 1250, "금액(원)": None, "비고": ""},
-    {"번호": 7, "품명": "안전망 2cm 방염", "규격": "8mm가공", "단위": "m2", "수량": None, "단가(원)": 1300, "금액(원)": None, "비고": ""},
-    {"번호": 8, "품명": "안전망 2cm 방염", "규격": "10mm가공", "단위": "m2", "수량": None, "단가(원)": 1450, "금액(원)": None, "비고": ""},
-    {"번호": 9, "품명": "안전망 1cm", "규격": "미가공", "단위": "m2", "수량": None, "단가(원)": 1400, "금액(원)": None, "비고": ""},
-    {"번호": 10, "품명": "안전망 1cm", "규격": "가공품", "단위": "m2", "수량": None, "단가(원)": 1650, "금액(원)": None, "비고": ""},
-    {"번호": 11, "품명": "안전망 1cm 방염", "규격": "미가공", "단위": "m2", "수량": None, "단가(원)": 1800, "금액(원)": None, "비고": ""},
-    {"번호": 12, "품명": "안전망 1cm 방염", "규격": "가공품", "단위": "m2", "수량": None, "단가(원)": 2050, "금액(원)": None, "비고": ""},
+    {"번호": 1, "품명": "안전망2cm", "규격": "미가공", "단위": "m2", "수량": None, "단가(원)": 700, "금액(원)": None, "비고": ""},
+    {"번호": 2, "품명": "안전망2cm", "규격": "6mm가공", "단위": "m2", "수량": None, "단가(원)": 1050, "금액(원)": None, "비고": ""},
+    {"번호": 3, "품명": "안전망2cm", "규격": "8mm가공", "단위": "m2", "수량": None, "단가(원)": 1100, "금액(원)": None, "비고": ""},
+    {"번호": 4, "품명": "안전망2cm", "규격": "10mm가공", "단위": "m2", "수량": None, "단가(원)": 1250, "금액(원)": None, "비고": ""},
+    {"번호": 5, "품명": "안전망2cm KS망", "규격": "미가공", "단위": "m2", "수량": None, "단가(원)": 900, "금액(원)": None, "비고": ""},
+    {"번호": 6, "품명": "안전망2cm KS망", "규격": "6mm가공", "단위": "m2", "수량": None, "단가(원)": 1250, "금액(원)": None, "비고": ""},
+    {"번호": 7, "품명": "안전망2cm KS망", "규격": "8mm가공", "단위": "m2", "수량": None, "단가(원)": 1300, "금액(원)": None, "비고": ""},
+    {"번호": 8, "품명": "안전망2cm KS망", "규격": "10mm가공", "단위": "m2", "수량": None, "단가(원)": 1450, "금액(원)": None, "비고": ""},
+    {"번호": 9, "품명": "안전망1cm", "규격": "미가공", "단위": "m2", "수량": None, "단가(원)": 1400, "금액(원)": None, "비고": ""},
+    {"번호": 10, "품명": "안전망1cm", "규격": "가공품", "단위": "m2", "수량": None, "단가(원)": 1650, "금액(원)": None, "비고": ""},
+    {"번호": 11, "품명": "안전망1cm KS망", "규격": "미가공", "단위": "m2", "수량": None, "단가(원)": 1800, "금액(원)": None, "비고": ""},
+    {"번호": 12, "품명": "안전망1cm KS망", "규격": "가공품", "단위": "m2", "수량": None, "단가(원)": 2050, "금액(원)": None, "비고": ""},
     {"번호": 13, "품명": "멀티망", "규격": "1200D", "단위": "m2", "수량": None, "단가(원)": 420, "금액(원)": None, "비고": ""},
     {"번호": 14, "품명": "럿셀망", "규격": "1.2", "단위": "R/L", "수량": None, "단가(원)": 16000, "금액(원)": None, "비고": ""},
     {"번호": 15, "품명": "럿셀망", "규격": "1.5", "단위": "R/L", "수량": None, "단가(원)": 20000, "금액(원)": None, "비고": ""},
@@ -81,8 +82,36 @@ def change_vendor():
     st.session_state.quote_discount = 0
 
 # 메인 UI
-st.title("📄 견적서 작성")
-st.markdown("견적서를 작성하고 단가와 수량을 조절하여 총 합계를 계산하세요.")
+st.title("📄 견적서 작성 및 출력")
+
+# ---------------------------------------------------------
+# 견적서 기본 정보 입력란
+# ---------------------------------------------------------
+st.subheader("1. 견적서 기본 정보")
+with st.expander("수신처 및 공급자 정보 입력 (클릭해서 열기)", expanded=True):
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("**[수신처 정보]**")
+        q_date = st.date_input("견적일", datetime.date.today())
+        q_name = st.text_input("견적명", "안전망, 로프 (단가견적)")
+        q_recipient = st.text_input("수신처 (회사명)", st.session_state.get('quote_vendor', '주식회사 경원안전'))
+        q_ref = st.text_input("참조", "한송이 차장")
+        q_phone = st.text_input("수신처 전화/팩스", "전화 041-553-1021 / 팩스 041-553-1022")
+    
+    with col_b:
+        st.markdown("**[공급자 정보 (석미세이프)]**")
+        s_company = st.text_input("회사명", "석미세이프")
+        s_address = st.text_area("주소", "경기도 구리시 갈매중앙로 190,\n비동 7층 7029호(갈매동, 나인지식산업센터)")
+        s_biznum = st.text_input("사업자등록번호", "524-38-00469")
+        s_contact = st.text_input("공급자 연락처", "Tel: 02-495-4584 / Fax: 02-495-4856")
+        s_email = st.text_input("이메일", "sm_safe@naver.com")
+
+st.divider()
+
+# ---------------------------------------------------------
+# 품목 및 단가 조정
+# ---------------------------------------------------------
+st.subheader("2. 품목 및 단가 입력")
 
 vendor_list = ["경원안전"]
 if 'df_sales' in st.session_state:
@@ -99,11 +128,11 @@ if 'quote_discount' not in st.session_state: st.session_state.quote_discount = 0
 
 c1, c2 = st.columns([1, 1])
 with c1:
-    st.selectbox("1️⃣ 수신처 (매출업체 선택)", vendor_list, index=vendor_list.index(st.session_state.quote_vendor) if st.session_state.quote_vendor in vendor_list else 0, key="quote_vendor", on_change=change_vendor)
+    st.selectbox("업체별 단가표 불러오기", vendor_list, index=vendor_list.index(st.session_state.quote_vendor) if st.session_state.quote_vendor in vendor_list else 0, key="quote_vendor", on_change=change_vendor)
 with c2:
-    st.number_input("2️⃣ 단가 일괄 조정 (%)", min_value=-100, max_value=100, value=st.session_state.quote_discount, step=5, key="quote_discount", on_change=apply_discount)
+    st.number_input("단가 일괄 조정 (%)", min_value=-100, max_value=100, value=st.session_state.quote_discount, step=5, key="quote_discount", on_change=apply_discount)
 
-st.caption("💡 **수량**을 입력하면 금액이 자동 계산됩니다. 규격에 `10x20` 형식으로 입력하면 가로세로 면적이 수량에 곱해집니다.")
+st.caption("💡 **수량**을 입력하면 금액이 자동 계산됩니다. 빈 행을 클릭해 품목을 추가할 수 있습니다.")
 
 edited_df = st.data_editor(
     st.session_state.quote_df,
@@ -118,7 +147,7 @@ edited_df = st.data_editor(
     }
 )
 
-# 3. 실시간 금액 계산 로직
+# 실시간 금액 계산 로직
 changed = False
 for idx in edited_df.index:
     qty = edited_df.loc[idx, '수량']
@@ -132,7 +161,7 @@ for idx in edited_df.index:
     elif any(x in item for x in ['안전망', '멀티망']):
         nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]
         if len(nums) >= 2: multiplier = nums[0] * nums[1]
-        elif len(nums) == 1 and re.search(r'[xX*]', spec): multiplier = nums[0] # 가로세로 기호가 있을 때만 곱함
+        elif len(nums) == 1 and re.search(r'[xX*]', spec): multiplier = nums[0]
     elif any(x in item for x in ['와이어로프', '와이어클립']):
         nums = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)', spec)]
         if nums and re.search(r'[mM미터]', spec): multiplier = nums[-1]
@@ -150,7 +179,7 @@ for idx in edited_df.index:
                 changed = True
     except: pass
 
-# 사용자가 단가를 직접 수정했을 경우 기본단가 동기화
+# 기본단가 동기화
 for idx in edited_df.index:
     try:
         if idx in st.session_state.quote_df.index:
@@ -163,6 +192,111 @@ if changed or not edited_df.equals(st.session_state.quote_df):
     st.session_state.quote_df = edited_df.copy()
     st.rerun()
 
-st.divider()
 total_sum = edited_df['금액(원)'].dropna().sum()
-st.markdown(f"<h3 style='text-align: right;'>총 합계금액 : {int(total_sum):,} 원 (VAT 별도)</h3>", unsafe_allow_html=True)
+st.markdown(f"<h4 style='text-align: right; color:#d32f2f;'>계산된 합계금액 : {int(total_sum):,} 원</h4>", unsafe_allow_html=True)
+
+st.divider()
+
+# ---------------------------------------------------------
+# 세련된 인쇄용(PDF) HTML 렌더링
+# ---------------------------------------------------------
+st.subheader("3. 견적서 출력 (미리보기)")
+st.info("💡 아래 영역을 확인한 후 브라우저의 **인쇄(Ctrl+P 또는 Cmd+P)** 기능을 이용해 PDF로 저장하세요.")
+
+# HTML 테이블 생성
+tbody_html = ""
+valid_rows = edited_df.dropna(subset=['품명']) # 품명이 있는 행만 출력
+for i, row in valid_rows.iterrows():
+    r_no = row.get('번호', '') if pd.notna(row.get('번호')) else ''
+    r_item = row.get('품명', '') if pd.notna(row.get('품명')) else ''
+    r_spec = row.get('규격', '') if pd.notna(row.get('규격')) else ''
+    r_unit = row.get('단위', '') if pd.notna(row.get('단위')) else ''
+    r_qty = f"{float(row['수량']):g}" if pd.notna(row.get('수량')) and str(row.get('수량')).strip() else ""
+    r_price = f"{int(row['단가(원)']):,}" if pd.notna(row.get('단가(원)')) else ""
+    r_amt = f"{int(row['금액(원)']):,}" if pd.notna(row.get('금액(원)')) else ""
+    r_note = row.get('비고', '') if pd.notna(row.get('비고')) else ''
+    
+    tbody_html += f"""
+    <tr>
+        <td style='text-align:center; padding:4px; border:1px solid #000;'>{r_no}</td>
+        <td style='padding:4px; border:1px solid #000;'>{r_item}</td>
+        <td style='padding:4px; border:1px solid #000;'>{r_spec}</td>
+        <td style='text-align:center; padding:4px; border:1px solid #000;'>{r_unit}</td>
+        <td style='text-align:center; padding:4px; border:1px solid #000;'>{r_qty}</td>
+        <td style='text-align:right; padding:4px; border:1px solid #000;'>{r_price}</td>
+        <td style='text-align:right; padding:4px; border:1px solid #000;'>{r_amt}</td>
+        <td style='padding:4px; border:1px solid #000;'>{r_note}</td>
+    </tr>
+    """
+
+addr_html = s_address.replace("\n", "<br>")
+
+html_template = f"""
+<div style="font-family: 'Malgun Gothic', sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; border: 2px solid #333; background: #fff; color: #000;">
+    <h1 style="text-align: center; letter-spacing: 10px; margin-bottom: 5px;">견 적 서</h1>
+    <p style="text-align: center; margin-top: 0; font-size: 14px; color: #555;">건설안전자재 (안전망, 갱폼수직보호망)</p>
+    
+    <div style="display: flex; justify-content: space-between; margin-top: 30px; font-size: 14px;">
+        <div style="width: 45%;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold; width: 60px;">수신처</td>
+                    <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_recipient} 귀하</td></tr>
+                <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">참조</td>
+                    <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_ref}</td></tr>
+                <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">연락처</td>
+                    <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_phone}</td></tr>
+            </table>
+            <div style="margin-top: 15px;">
+                <p style="margin: 3px 0;"><strong>견적일 : </strong> {q_date.strftime('%Y년 %m월 %d일')}</p>
+                <p style="margin: 3px 0;"><strong>견적명 : </strong> {q_name}</p>
+                <p style="margin: 3px 0; font-size: 16px;"><strong>합계금액 : </strong> <span style="font-size: 18px; font-weight: bold;">₩ {int(total_sum):,}</span> (VAT 별도)</p>
+            </div>
+        </div>
+        
+        <div style="width: 45%;">
+            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000;">
+                <tr>
+                    <td rowspan="4" style="width: 20px; text-align: center; border-right: 1px solid #000; border-bottom: 1px solid #000; writing-mode: vertical-lr; font-weight: bold;">공급자</td>
+                    <td style="width: 60px; padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000;">사업자번호</td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000;">{s_biznum}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000;">상호</td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000;"><strong>{s_company}</strong></td>
+                </tr>
+                <tr>
+                    <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000;">주소</td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000; font-size: 12px;">{addr_html}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 3px; border-right: 1px solid #000;">연락처</td>
+                    <td style="padding: 3px; font-size: 12px;">{s_contact}<br>E-mail: {s_email}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <p style="margin-bottom: 5px; font-weight: bold;">아래와 같이 견적합니다. (VAT 별도)</p>
+        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 13px;">
+            <thead>
+                <tr style="background-color: #f0f0f0;">
+                    <th style="padding: 5px; border: 1px solid #000; width: 40px;">번호</th>
+                    <th style="padding: 5px; border: 1px solid #000; width: 150px;">품명</th>
+                    <th style="padding: 5px; border: 1px solid #000;">규격</th>
+                    <th style="padding: 5px; border: 1px solid #000; width: 60px;">단위</th>
+                    <th style="padding: 5px; border: 1px solid #000; width: 60px;">수량</th>
+                    <th style="padding: 5px; border: 1px solid #000; width: 80px;">단가(원)</th>
+                    <th style="padding: 5px; border: 1px solid #000; width: 100px;">금액(원)</th>
+                    <th style="padding: 5px; border: 1px solid #000; width: 80px;">비고</th>
+                </tr>
+            </thead>
+            <tbody>
+                {tbody_html}
+            </tbody>
+        </table>
+    </div>
+</div>
+"""
+
+st.components.v1.html(html_template, height=1000, scrolling=True)
