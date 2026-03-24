@@ -196,27 +196,53 @@ try:
             return row
 
         df_calc = merged_view.apply(apply_unit_calc, axis=1)
-        df_out = df_calc.sort_values('__order')
+        df_out = df_calc.sort_values('__order').reset_index(drop=True)
         df_out['row_id'] = list(zip(df_out['품목'], df_out['calc_spec'], df_out['display_spec']))
         
-        ratios = [0.4, 1.5, 1.5, 1.5] + [1.5] * len(ordered_matched_cols)
-        
-        h = st.columns(ratios)
-        h[0].markdown("**삭제**"); h[1].markdown("**품목**"); h[2].markdown("**규격1**"); h[3].markdown("**규격2**")
-        for i, v in enumerate(ordered_matched_cols): h[4+i].markdown(f"**{v}**")
-        st.markdown("---")
-        
-        for _, row in df_out.iterrows():
-            row_key = row['row_id']
-            c = st.columns(ratios)
-            if c[0].button("🗑️", key=f"btn_del_v_{row_key}"):
-                st.session_state.vendor_deleted_set_new.add(row_key)
-                st.rerun()
+        # 품목, 규격 합쳐서 공간 절약
+        def combine_info(row):
+            res = str(row['품목'])
+            extras = []
+            if str(row['calc_spec']).strip(): extras.append(str(row['calc_spec']))
+            if str(row['display_spec']).strip() and str(row['display_spec']) != str(row['calc_spec']): extras.append(str(row['display_spec']))
+            if extras:
+                res += f" ({' / '.join(extras)})"
+            return res
             
-            c[1].text(row['품목']); c[2].text(row['calc_spec']); c[3].text(row['display_spec'])
-            for i, v in enumerate(ordered_matched_cols): c[4+i].text(format_price_safe(row.get(v, "")))
-            st.markdown("<hr style='margin: 0.2rem 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
+        df_out['품목정보'] = df_out.apply(combine_info, axis=1)
         
+        # 출력용 데이터프레임 구성
+        df_show = df_out[['품목정보'] + ordered_matched_cols].copy()
+        for c in ordered_matched_cols:
+            df_show[c] = df_show[c].apply(format_price_safe)
+            
+        # 삭제 체크박스 컬럼 추가
+        df_show.insert(0, '삭제', False)
+        
+        # 열 너비 설정
+        cols_config = {
+            "삭제": st.column_config.CheckboxColumn("삭제", width="small"),
+            "품목정보": st.column_config.TextColumn("품목정보", width=200)
+        }
+        for c in ordered_matched_cols:
+            cols_config[c] = st.column_config.TextColumn(c, width=90)
+            
+        # 데이터 에디터로 출력 (가로 스크롤 활성화)
+        edited_df = st.data_editor(
+            df_show,
+            hide_index=True,
+            use_container_width=True,
+            column_config=cols_config,
+            disabled=['품목정보'] + ordered_matched_cols # 삭제 체크박스 빼고 수정 금지
+        )
+        
+        # 삭제 동작 감지 시 즉시 세션 반영 후 새로고침
+        if edited_df['삭제'].any():
+            deleted_indices = edited_df[edited_df['삭제']].index
+            for idx in deleted_indices:
+                st.session_state.vendor_deleted_set_new.add(df_out.loc[idx, 'row_id'])
+            st.rerun()
+
         st.markdown("---")
         _, del_col = st.columns([5, 1])
         if del_col.button("🗑️ 출력된 항목 전체삭제", type="secondary", key="vp_clear_all_btn"):
