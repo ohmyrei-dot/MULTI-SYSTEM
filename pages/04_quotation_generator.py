@@ -44,19 +44,32 @@ def get_vendor_price(vendor_name, item_name, spec_name, default_price):
     df_v = df_sales[df_sales[vendor_col].astype(str) == vendor_name]
     if df_v.empty: return default_price
     
-    clean_item = str(item_name).replace(" ", "").lower()
-    clean_spec = str(spec_name).replace(" ", "").lower()
+    target_str = str(item_name) + str(spec_name)
+    
+    def make_tokens(text):
+        t = text.replace(" ", "").lower().replace("방염", "ks망")
+        tokens = set()
+        for w in ['안전망', '멀티망', '럿셀망', 'pp로프', '와이어클립', '와이어', '케이블타이']:
+            if w in t: tokens.add(w)
+        for num in re.findall(r'\d+(?:\.\d+)?', t):
+            tokens.add(num)
+        if '미가공' in t: tokens.add('미가공')
+        elif '가공' in t: tokens.add('가공')
+        if 'ks망' in t: tokens.add('ks망')
+        return tokens
+    
+    target_tokens = make_tokens(target_str)
     
     for _, row in df_v.iterrows():
-        db_item = str(row.get('품목', '')).replace(" ", "").lower()
-        db_spec1 = str(row.get('규격1', row.get('규격', ''))).replace(" ", "").lower()
+        db_str = str(row.get('품목', '')) + str(row.get('규격1', row.get('규격', ''))) + str(row.get('규격2', '')) + str(row.get('비고', ''))
+        db_tokens = make_tokens(db_str)
         
-        if db_item in clean_item or clean_item in db_item:
-            if clean_spec == "" or clean_spec in db_spec1 or db_spec1 in clean_spec:
-                price_cols = [c for c in df_sales.columns if '단가' in c or '가격' in c]
-                if price_cols:
-                    try: return float(row[price_cols[0]])
-                    except: pass
+        if target_tokens == db_tokens and len(target_tokens) > 0:
+            price_cols = [c for c in df_sales.columns if '단가' in c or '가격' in c]
+            if price_cols:
+                raw_val = str(row[price_cols[0]]).replace(",", "")
+                try: return float(raw_val)
+                except: pass
     return default_price
 
 def load_initial_data(vendor_name):
@@ -94,7 +107,11 @@ with st.expander("수신처 및 공급자 정보 입력 (클릭해서 열기)", 
         st.markdown("**[수신처 정보]**")
         q_date = st.date_input("견적일", datetime.date.today())
         q_name = st.text_input("견적명", "안전망, 로프 (단가견적)")
-        q_recipient = st.text_input("수신처 (회사명)", st.session_state.get('quote_vendor', '주식회사 경원안전'))
+        
+        # 수신처가 업체 선택 시 자동 변경되도록 반영
+        vendor_val = st.session_state.get('quote_vendor', '경원안전')
+        q_recipient = st.text_input("수신처 (회사명)", f"주식회사 {vendor_val}" if vendor_val != "직접 입력" else "")
+        
         q_ref = st.text_input("참조", "한송이 차장")
         q_phone = st.text_input("수신처 전화/팩스", "전화 041-553-1021 / 팩스 041-553-1022")
     
