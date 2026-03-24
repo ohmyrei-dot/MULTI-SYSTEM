@@ -197,7 +197,7 @@ try:
             
             # 틀고정 유지하면서 기본 단가일 때만 너비 10% 넓히기 (투명 공백 꼼수)
             if price_mode == "기본 단가":
-                res += "\xa0" * 8 
+                res += "\xa0" * 30 
             return res
         
         final_df['품목정보'] = final_df.apply(combine_info, axis=1)
