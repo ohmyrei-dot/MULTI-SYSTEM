@@ -194,16 +194,23 @@ try:
             if note_col in x and str(x[note_col]).strip() and str(x[note_col]) != 'nan': extras.append(str(x[note_col]))
             if extras:
                 res += f" ({' / '.join(extras)})"
+            
+            # 틀고정 유지하면서 기본 단가일 때만 너비 10% 넓히기 (투명 공백 꼼수)
+            if price_mode == "기본 단가":
+                res += "\xa0" * 8 
             return res
         
         final_df['품목정보'] = final_df.apply(combine_info, axis=1)
         drop_cols = [c for c in ['품목', '규격', note_col] if c in final_df.columns]
         final_df = final_df.drop(columns=drop_cols).set_index('품목정보')
         
-        # 인덱스 너비 강제 조절 시 모바일 틀고정이 풀리는 문제로 column_config 제거
+        # 업체명 칸만 너비 90픽셀로 강제 지정 (인덱스는 안 건드려서 틀고정 유지)
+        cols_config = {c: st.column_config.TextColumn(c, width=90) for c in final_df.columns if c != '단위'}
+        
         st.dataframe(
             final_df.applymap(format_price_safe) if hasattr(final_df, 'applymap') else final_df.map(format_price_safe), 
-            use_container_width=True
+            use_container_width=True,
+            column_config=cols_config
         )
 except Exception as e: 
     st.error(f"오류: {e}")
