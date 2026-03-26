@@ -34,55 +34,9 @@ DEFAULT_PRICES = [
     {"번호": 25, "품명": "케이블타이", "규격": "270mm", "단위": "봉", "수량": None, "단가(원)": 15000, "금액(원)": None, "비고": ""}
 ]
 
-def get_vendor_price(vendor_name, item_name, spec_name, default_price):
-    if 'df_sales' not in st.session_state: return default_price
-    df_sales = st.session_state['df_sales']
-    
-    vendor_col = next((c for c in df_sales.columns if '매출업체' in str(c) or '업체' in str(c)), None)
-    if not vendor_col: return default_price
-    
-    df_v = df_sales[df_sales[vendor_col].astype(str) == vendor_name]
-    if df_v.empty: return default_price
-    
-    # 비교를 위해 띄어쓰기 제거 및 소문자, 방염->ks망, cm->숫자 통일
-    t_full = (str(item_name) + str(spec_name)).replace(" ", "").lower()
-    t_full = t_full.replace("방염", "ks망").replace("2cm", "20").replace("1cm", "10")
-    
-    # 핵심 단어 추출
-    words = []
-    for w in ['안전망', '멀티망', '럿셀망', 'pp로프', '와이어클립', '와이어', '케이블타이', '미가공', 'ks망', '가공품']:
-        if w in t_full: words.append(w)
-    
-    # 핵심 숫자 추출
-    nums = re.findall(r'\d+(?:\.\d+)?', t_full)
-    
-    for _, row in df_v.iterrows():
-        db_full = str(row.get('품목', '')) + str(row.get('규격1', row.get('규격', ''))) + str(row.get('비고', ''))
-        db_full = db_full.replace(" ", "").lower().replace("방염", "ks망").replace("2cm", "20").replace("1cm", "10")
-        
-        # 1. 모든 단어가 포함되었는지 확인
-        if all(w in db_full for w in words):
-            # '가공' 관련 디테일 체크 (미가공 vs 6mm가공 등 꼬임 방지)
-            if "미가공" not in words and "가공" in t_full and "가공품" not in words:
-                if "가공" not in db_full or "미가공" in db_full:
-                    continue
-            
-            # 2. 모든 숫자가 포함되었는지 확인
-            if all(n in db_full for n in nums):
-                price_cols = [c for c in df_sales.columns if '단가' in c or '가격' in c]
-                if price_cols:
-                    try: return float(str(row[price_cols[0]]).replace(",", ""))
-                    except: pass
-                    
-    return default_price
-
-def load_initial_data(vendor_name):
+def load_initial_data():
     df = pd.DataFrame(DEFAULT_PRICES)
     df['기본단가'] = df['단가(원)'] # 숨김 처리용
-    for idx in df.index:
-        price = get_vendor_price(vendor_name, df.loc[idx, '품명'], df.loc[idx, '규격'], df.loc[idx, '단가(원)'])
-        df.loc[idx, '단가(원)'] = price
-        df.loc[idx, '기본단가'] = price
     return df
 
 def apply_discount():
@@ -92,11 +46,6 @@ def apply_discount():
         base_p = df.loc[idx, '기본단가']
         if pd.notna(base_p):
             df.loc[idx, '단가(원)'] = int(float(base_p) * (1 + rate / 100))
-
-def change_vendor():
-    vendor = st.session_state.quote_vendor
-    st.session_state.quote_df = load_initial_data(vendor)
-    st.session_state.quote_discount = 0
 
 # 메인 UI
 st.title("📄 견적서 작성 및 출력")
@@ -111,11 +60,7 @@ with st.expander("수신처 및 공급자 정보 입력 (클릭해서 열기)", 
         st.markdown("**[수신처 정보]**")
         q_date = st.date_input("견적일", datetime.date.today())
         q_name = st.text_input("견적명", "안전망, 로프 (단가견적)")
-        
-        # 수신처가 업체 선택 시 자동 변경되도록 반영
-        vendor_val = st.session_state.get('quote_vendor', '경원안전')
-        q_recipient = st.text_input("수신처 (회사명)", f"주식회사 {vendor_val}" if vendor_val != "직접 입력" else "")
-        
+        q_recipient = st.text_input("수신처 (회사명)", "주식회사 경원안전")
         q_ref = st.text_input("참조", "한송이 차장")
         q_phone = st.text_input("수신처 전화/팩스", "전화 041-553-1021 / 팩스 041-553-1022")
     
@@ -134,25 +79,11 @@ st.divider()
 # ---------------------------------------------------------
 st.subheader("2. 품목 및 단가 입력")
 
-vendor_list = ["경원안전"]
-if 'df_sales' in st.session_state:
-    df_sales = st.session_state['df_sales']
-    v_col = next((c for c in df_sales.columns if '매출업체' in str(c) or '업체' in str(c)), None)
-    if v_col:
-        vendor_list = sorted(list(set(df_sales[v_col].dropna().astype(str))) + ["직접 입력"])
-        if "경원안전" not in vendor_list: vendor_list.insert(0, "경원안전")
-
 # 초기 세팅
-if 'quote_vendor' not in st.session_state: st.session_state.quote_vendor = "경원안전"
-if 'quote_df' not in st.session_state: st.session_state.quote_df = load_initial_data("경원안전")
+if 'quote_df' not in st.session_state: st.session_state.quote_df = load_initial_data()
 if 'quote_discount' not in st.session_state: st.session_state.quote_discount = 0
 
-c1, c2 = st.columns([1, 1])
-with c1:
-    st.selectbox("업체별 단가표 불러오기", vendor_list, index=vendor_list.index(st.session_state.quote_vendor) if st.session_state.quote_vendor in vendor_list else 0, key="quote_vendor", on_change=change_vendor)
-with c2:
-    st.number_input("단가 일괄 조정 (%)", min_value=-100, max_value=100, value=st.session_state.quote_discount, step=5, key="quote_discount", on_change=apply_discount)
-
+st.number_input("단가 일괄 조정 (%)", min_value=-100, max_value=100, value=st.session_state.quote_discount, step=5, key="quote_discount", on_change=apply_discount)
 st.caption("💡 **수량**을 입력하면 금액이 자동 계산됩니다. 빈 행을 클릭해 품목을 추가할 수 있습니다.")
 
 edited_df = st.data_editor(
@@ -278,7 +209,8 @@ html_template = f"""
             <table style="width: 100%; border-collapse: collapse; border: 2px solid #000;">
                 <tr>
                     <td rowspan="4" style="width: 20px; text-align: center; border-right: 1px solid #000; border-bottom: 1px solid #000; writing-mode: vertical-lr; font-weight: bold;">공급자</td>
-                    <td style="width: 60px; padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000;">사업자번호</td>
+                    <!-- width를 60px에서 90px로 넓혀 사업자번호 한줄 출력되도록 수정 -->
+                    <td style="width: 90px; padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000;">사업자번호</td>
                     <td style="padding: 3px; border-bottom: 1px solid #000;">{s_biznum}</td>
                 </tr>
                 <tr>
