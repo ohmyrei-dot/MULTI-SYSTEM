@@ -44,32 +44,36 @@ def get_vendor_price(vendor_name, item_name, spec_name, default_price):
     df_v = df_sales[df_sales[vendor_col].astype(str) == vendor_name]
     if df_v.empty: return default_price
     
-    target_str = str(item_name) + str(spec_name)
+    # 비교를 위해 띄어쓰기 제거 및 소문자, 방염->ks망, cm->숫자 통일
+    t_full = (str(item_name) + str(spec_name)).replace(" ", "").lower()
+    t_full = t_full.replace("방염", "ks망").replace("2cm", "20").replace("1cm", "10")
     
-    def make_tokens(text):
-        t = text.replace(" ", "").lower().replace("방염", "ks망")
-        tokens = set()
-        for w in ['안전망', '멀티망', '럿셀망', 'pp로프', '와이어클립', '와이어', '케이블타이']:
-            if w in t: tokens.add(w)
-        for num in re.findall(r'\d+(?:\.\d+)?', t):
-            tokens.add(num)
-        if '미가공' in t: tokens.add('미가공')
-        elif '가공' in t: tokens.add('가공')
-        if 'ks망' in t: tokens.add('ks망')
-        return tokens
+    # 핵심 단어 추출
+    words = []
+    for w in ['안전망', '멀티망', '럿셀망', 'pp로프', '와이어클립', '와이어', '케이블타이', '미가공', 'ks망', '가공품']:
+        if w in t_full: words.append(w)
     
-    target_tokens = make_tokens(target_str)
+    # 핵심 숫자 추출
+    nums = re.findall(r'\d+(?:\.\d+)?', t_full)
     
     for _, row in df_v.iterrows():
-        db_str = str(row.get('품목', '')) + str(row.get('규격1', row.get('규격', ''))) + str(row.get('규격2', '')) + str(row.get('비고', ''))
-        db_tokens = make_tokens(db_str)
+        db_full = str(row.get('품목', '')) + str(row.get('규격1', row.get('규격', ''))) + str(row.get('비고', ''))
+        db_full = db_full.replace(" ", "").lower().replace("방염", "ks망").replace("2cm", "20").replace("1cm", "10")
         
-        if target_tokens == db_tokens and len(target_tokens) > 0:
-            price_cols = [c for c in df_sales.columns if '단가' in c or '가격' in c]
-            if price_cols:
-                raw_val = str(row[price_cols[0]]).replace(",", "")
-                try: return float(raw_val)
-                except: pass
+        # 1. 모든 단어가 포함되었는지 확인
+        if all(w in db_full for w in words):
+            # '가공' 관련 디테일 체크 (미가공 vs 6mm가공 등 꼬임 방지)
+            if "미가공" not in words and "가공" in t_full and "가공품" not in words:
+                if "가공" not in db_full or "미가공" in db_full:
+                    continue
+            
+            # 2. 모든 숫자가 포함되었는지 확인
+            if all(n in db_full for n in nums):
+                price_cols = [c for c in df_sales.columns if '단가' in c or '가격' in c]
+                if price_cols:
+                    try: return float(str(row[price_cols[0]]).replace(",", ""))
+                    except: pass
+                    
     return default_price
 
 def load_initial_data(vendor_name):
