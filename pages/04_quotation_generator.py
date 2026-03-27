@@ -189,14 +189,14 @@ for i, row in valid_rows.iterrows():
     
     tbody_html += f"""
     <tr>
-        <td style='text-align:center; padding:6px 4px; border:1px solid #000;'>{r_no}</td>
-        <td style='padding:6px 4px; border:1px solid #000;'>{r_item}</td>
-        <td style='padding:6px 4px; border:1px solid #000;'>{r_spec}</td>
-        <td style='text-align:center; padding:6px 4px; border:1px solid #000;'>{r_unit}</td>
-        <td style='text-align:center; padding:6px 4px; border:1px solid #000;'>{r_qty}</td>
-        <td style='text-align:right; padding:6px 4px; border:1px solid #000;'>{r_price}</td>
-        <td style='text-align:right; padding:6px 4px; border:1px solid #000;'>{r_amt}</td>
-        <td style='padding:6px 4px; border:1px solid #000;'>{r_note}</td>
+        <td style='text-align:center; padding:4px 4px; border:1px solid #000;'>{r_no}</td>
+        <td style='padding:4px 4px; border:1px solid #000;'>{r_item}</td>
+        <td style='padding:4px 4px; border:1px solid #000;'>{r_spec}</td>
+        <td style='text-align:center; padding:4px 4px; border:1px solid #000;'>{r_unit}</td>
+        <td style='text-align:center; padding:4px 4px; border:1px solid #000;'>{r_qty}</td>
+        <td style='text-align:right; padding:4px 4px; border:1px solid #000;'>{r_price}</td>
+        <td style='text-align:right; padding:4px 4px; border:1px solid #000;'>{r_amt}</td>
+        <td style='padding:4px 4px; border:1px solid #000;'>{r_note}</td>
     </tr>
     """
 
@@ -212,24 +212,24 @@ html_template = f"""
     </button>
 </div>
 
-<div id="invoice-box" style="font-family: 'Malgun Gothic', sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; border: 2px solid #333; background: #fff; color: #000;">
-    <h1 style="text-align: center; letter-spacing: 10px; margin-bottom: 5px;">견 적 서</h1>
-    <p style="text-align: center; margin-top: 0; font-size: 14px; color: #555;">건설안전자재 (안전망, 갱폼수직보호망)</p>
+<div id="invoice-box" style="font-family: 'Malgun Gothic', sans-serif; max-width: 800px; margin: 0 auto; padding: 15px; border: 2px solid #333; background: #fff; color: #000;">
+    <h1 style="text-align: center; letter-spacing: 10px; margin-bottom: 0px;">견 적 서</h1>
+    <p style="text-align: center; margin-top: 0; font-size: 13px; color: #555;">건설안전자재 (안전망, 갱폼수직보호망)</p>
     
-    <div style="display: flex; justify-content: space-between; margin-top: 20px; font-size: 14px;">
+    <div style="display: flex; justify-content: space-between; margin-top: 15px; font-size: 13px;">
         <div style="width: 45%;">
             <table style="width: 100%; border-collapse: collapse;">
-                <tr><td style="padding: 4px 0; border-bottom: 1px solid #000; font-weight: bold; width: 60px;">수신처</td>
-                    <td style="padding: 4px 0; border-bottom: 1px solid #000;">{f"{q_recipient} 귀하" if q_recipient else ""}</td></tr>
-                <tr><td style="padding: 4px 0; border-bottom: 1px solid #000; font-weight: bold;">참조</td>
-                    <td style="padding: 4px 0; border-bottom: 1px solid #000;">{q_ref}</td></tr>
-                <tr><td style="padding: 4px 0; border-bottom: 1px solid #000; font-weight: bold;">연락처</td>
-                    <td style="padding: 4px 0; border-bottom: 1px solid #000;">{q_phone}</td></tr>
+                <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold; width: 60px;">수신처</td>
+                    <td style="padding: 3px 0; border-bottom: 1px solid #000;">{f"{q_recipient} 귀하" if q_recipient else ""}</td></tr>
+                <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">참조</td>
+                    <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_ref}</td></tr>
+                <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">연락처</td>
+                    <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_phone}</td></tr>
             </table>
-            <div style="margin-top: 15px;">
-                <p style="margin: 4px 0;"><strong>견적일 : </strong> {q_date.strftime('%Y년 %m월 %d일')}</p>
-                <p style="margin: 4px 0;"><strong>견적명 : </strong> {q_name}</p>
-                <p style="margin: 4px 0; font-size: 16px;"><strong>합계금액 : </strong> <span style="font-size: 18px; font-weight: bold;">₩ {int(total_sum):,}</span> (VAT 별도)</p>
+            <div style="margin-top: 10px;">
+                <p style="margin: 3px 0;"><strong>견적일 : </strong> {q_date.strftime('%Y년 %m월 %d일')}</p>
+                <p style="margin: 3px 0;"><strong>견적명 : </strong> {q_name}</p>
+                <p style="margin: 3px 0; font-size: 15px;"><strong>합계금액 : </strong> <span style="font-size: 16px; font-weight: bold;">₩ {int(total_sum):,}</span> (VAT 별도)</p>
             </div>
         </div>
         
@@ -237,38 +237,38 @@ html_template = f"""
             <table style="width: 100%; border-collapse: collapse; border: 2px solid #000;">
                 <tr>
                     <td rowspan="4" style="width: 20px; text-align: center; border-right: 1px solid #000; border-bottom: 1px solid #000; writing-mode: vertical-lr; font-weight: bold;">공급자</td>
-                    <td style="width: 90px; padding: 4px; border-right: 1px solid #000; border-bottom: 1px solid #000;">사업자번호</td>
-                    <td style="padding: 4px; border-bottom: 1px solid #000;">{s_biznum}</td>
+                    <td style="width: 90px; padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000;">사업자번호</td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000;">{s_biznum}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 4px; border-right: 1px solid #000; border-bottom: 1px solid #000;">상호</td>
-                    <td style="padding: 4px; border-bottom: 1px solid #000;"><strong>{s_company}</strong></td>
+                    <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000;">상호</td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000;"><strong>{s_company}</strong></td>
                 </tr>
                 <tr>
-                    <td style="padding: 4px; border-right: 1px solid #000; border-bottom: 1px solid #000;">주소</td>
-                    <td style="padding: 4px; border-bottom: 1px solid #000; font-size: 12px;">{addr_html}</td>
+                    <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000;">주소</td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000; font-size: 12px;">{addr_html}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 4px; border-right: 1px solid #000;">연락처</td>
-                    <td style="padding: 4px; font-size: 12px;">{s_contact}<br>E-mail: {s_email}</td>
+                    <td style="padding: 3px; border-right: 1px solid #000;">연락처</td>
+                    <td style="padding: 3px; font-size: 12px;">{s_contact}<br>E-mail: {s_email}</td>
                 </tr>
             </table>
         </div>
     </div>
     
-    <div style="margin-top: 20px;">
+    <div style="margin-top: 15px;">
         <p style="margin-bottom: 5px; font-weight: bold; font-size: 13px;">아래와 같이 견적합니다. (VAT 별도)</p>
         <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 13px;">
             <thead>
                 <tr style="background-color: #f0f0f0;">
-                    <th style="padding: 6px; border: 1px solid #000; width: 40px;">번호</th>
-                    <th style="padding: 6px; border: 1px solid #000; width: 150px;">품명</th>
-                    <th style="padding: 6px; border: 1px solid #000;">규격</th>
-                    <th style="padding: 6px; border: 1px solid #000; width: 50px;">단위</th>
-                    <th style="padding: 6px; border: 1px solid #000; width: 50px;">수량</th>
-                    <th style="padding: 6px; border: 1px solid #000; width: 80px;">단가(원)</th>
-                    <th style="padding: 6px; border: 1px solid #000; width: 90px;">금액(원)</th>
-                    <th style="padding: 6px; border: 1px solid #000; width: 70px;">비고</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 40px;">번호</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 150px;">품명</th>
+                    <th style="padding: 4px; border: 1px solid #000;">규격</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 50px;">단위</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 50px;">수량</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 80px;">단가(원)</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 90px;">금액(원)</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 70px;">비고</th>
                 </tr>
             </thead>
             <tbody>
@@ -282,7 +282,7 @@ html_template = f"""
     function downloadPDF() {{
         var element = document.getElementById('invoice-box');
         var opt = {{
-            margin:       5,
+            margin:       3,
             filename:     '{q_name}_견적서.pdf',
             image:        {{ type: 'jpeg', quality: 0.98 }},
             html2canvas:  {{ scale: 2 }},
