@@ -172,7 +172,7 @@ st.divider()
 # 세련된 인쇄용(PDF) HTML 렌더링
 # ---------------------------------------------------------
 st.subheader("3. 견적서 출력 (미리보기)")
-st.info("💡 아래 영역을 확인한 후 브라우저의 **인쇄(Ctrl+P 또는 Cmd+P)** 기능을 이용해 PDF로 저장하세요.")
+st.info("💡 아래 [📥 PDF 다운로드] 버튼을 누르면 PC와 모바일 모두에서 파일로 즉시 저장됩니다.")
 
 # HTML 테이블 생성
 tbody_html = ""
@@ -203,7 +203,16 @@ for i, row in valid_rows.iterrows():
 addr_html = s_address.replace("\n", "<br>")
 
 html_template = f"""
-<div style="font-family: 'Malgun Gothic', sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; border: 2px solid #333; background: #fff; color: #000;">
+<!-- PDF 변환 라이브러리 추가 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<div style="text-align: right; max-width: 840px; margin: 0 auto 10px auto;">
+    <button onclick="downloadPDF()" style="padding: 10px 20px; background-color: #ff4b4b; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold;">
+        📥 PDF 다운로드
+    </button>
+</div>
+
+<div id="invoice-box" style="font-family: 'Malgun Gothic', sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; border: 2px solid #333; background: #fff; color: #000;">
     <h1 style="text-align: center; letter-spacing: 10px; margin-bottom: 5px;">견 적 서</h1>
     <p style="text-align: center; margin-top: 0; font-size: 14px; color: #555;">건설안전자재 (안전망, 갱폼수직보호망)</p>
     
@@ -211,7 +220,7 @@ html_template = f"""
         <div style="width: 45%;">
             <table style="width: 100%; border-collapse: collapse;">
                 <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold; width: 60px;">수신처</td>
-                    <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_recipient} 귀하</td></tr>
+                    <td style="padding: 3px 0; border-bottom: 1px solid #000;">{f"{q_recipient} 귀하" if q_recipient else ""}</td></tr>
                 <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">참조</td>
                     <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_ref}</td></tr>
                 <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">연락처</td>
@@ -268,6 +277,20 @@ html_template = f"""
         </table>
     </div>
 </div>
+
+<script>
+    function downloadPDF() {{
+        var element = document.getElementById('invoice-box');
+        var opt = {{
+            margin:       10,
+            filename:     '{q_name}_견적서.pdf',
+            image:        {{ type: 'jpeg', quality: 0.98 }},
+            html2canvas:  {{ scale: 2 }},
+            jsPDF:        {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+        }};
+        html2pdf().set(opt).from(element).save();
+    }}
+</script>
 """
 
-st.components.v1.html(html_template, height=1000, scrolling=True)
+st.components.v1.html(html_template, height=1100, scrolling=True)
