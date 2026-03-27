@@ -60,9 +60,9 @@ with st.expander("수신처 및 공급자 정보 입력 (클릭해서 열기)", 
         st.markdown("**[수신처 정보]**")
         q_date = st.date_input("견적일", datetime.date.today())
         q_name = st.text_input("견적명", "안전망, 로프 (단가견적)")
-        q_recipient = st.text_input("수신처 (회사명)", "")
-        q_ref = st.text_input("참조", "")
-        q_phone = st.text_input("수신처 전화/팩스", "")
+        q_recipient = st.text_input("수신처 (회사명)", value="", placeholder="예: 주식회사 경원안전")
+        q_ref = st.text_input("참조", value="", placeholder="예: 한송이 차장")
+        q_phone = st.text_input("수신처 전화/팩스", value="", placeholder="예: 전화 041-553-1021 / 팩스 041-553-1022")
     
     with col_b:
         st.markdown("**[공급자 정보 (석미세이프)]**")
@@ -83,7 +83,7 @@ st.subheader("2. 품목 및 단가 입력")
 if 'quote_df' not in st.session_state: st.session_state.quote_df = load_initial_data()
 if 'quote_discount' not in st.session_state: st.session_state.quote_discount = 0
 
-# 단가 일괄 조정 너비 축소
+# 단가 일괄 조정 너비 축소 (오류 해결 위해 value 제거)
 col_adj1, col_adj2 = st.columns([1.5, 8.5])
 with col_adj1:
     st.number_input("단가 일괄 조정 (%)", min_value=-100, max_value=100, step=5, key="quote_discount", on_change=apply_discount)
@@ -228,7 +228,6 @@ html_template = f"""
             <table style="width: 100%; border-collapse: collapse; border: 2px solid #000;">
                 <tr>
                     <td rowspan="4" style="width: 20px; text-align: center; border-right: 1px solid #000; border-bottom: 1px solid #000; writing-mode: vertical-lr; font-weight: bold;">공급자</td>
-                    <!-- width를 60px에서 90px로 넓혀 사업자번호 한줄 출력되도록 수정 -->
                     <td style="width: 90px; padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000;">사업자번호</td>
                     <td style="padding: 3px; border-bottom: 1px solid #000;">{s_biznum}</td>
                 </tr>
