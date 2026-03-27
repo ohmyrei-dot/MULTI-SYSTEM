@@ -83,7 +83,10 @@ st.subheader("2. 품목 및 단가 입력")
 if 'quote_df' not in st.session_state: st.session_state.quote_df = load_initial_data()
 if 'quote_discount' not in st.session_state: st.session_state.quote_discount = 0
 
-st.number_input("단가 일괄 조정 (%)", min_value=-100, max_value=100, value=st.session_state.quote_discount, step=5, key="quote_discount", on_change=apply_discount)
+# 단가 일괄 조정 너비 축소
+col_adj1, col_adj2 = st.columns([1.5, 8.5])
+with col_adj1:
+    st.number_input("단가 일괄 조정 (%)", min_value=-100, max_value=100, value=st.session_state.quote_discount, step=5, key="quote_discount", on_change=apply_discount)
 
 # --- 중간 행 삽입 기능 추가 ---
 col_ins1, col_ins2, col_ins3 = st.columns([1.5, 2, 6])
