@@ -84,6 +84,21 @@ if 'quote_df' not in st.session_state: st.session_state.quote_df = load_initial_
 if 'quote_discount' not in st.session_state: st.session_state.quote_discount = 0
 
 st.number_input("단가 일괄 조정 (%)", min_value=-100, max_value=100, value=st.session_state.quote_discount, step=5, key="quote_discount", on_change=apply_discount)
+
+# --- 중간 행 삽입 기능 추가 ---
+col_ins1, col_ins2, col_ins3 = st.columns([1.5, 2, 6])
+with col_ins1:
+    ins_idx = st.number_input("추가할 행 번호", min_value=1, max_value=len(st.session_state.quote_df)+1, value=1, step=1)
+with col_ins2:
+    st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+    if st.button("➕ 해당 번호에 행 삽입"):
+        df = st.session_state.quote_df
+        idx = int(ins_idx) - 1
+        new_row = pd.DataFrame([{"번호": 0, "품명": "", "규격": "", "단위": "", "수량": None, "단가(원)": None, "금액(원)": None, "비고": "", "기본단가": None}])
+        st.session_state.quote_df = pd.concat([df.iloc[:idx], new_row, df.iloc[idx:]]).reset_index(drop=True)
+        st.session_state.quote_df['번호'] = range(1, len(st.session_state.quote_df) + 1)
+        st.rerun()
+
 st.caption("💡 **수량**을 입력하면 금액이 자동 계산됩니다. 빈 행을 클릭해 품목을 추가할 수 있습니다.")
 
 edited_df = st.data_editor(
@@ -141,6 +156,7 @@ for idx in edited_df.index:
     except: pass
 
 if changed or not edited_df.equals(st.session_state.quote_df):
+    edited_df['번호'] = range(1, len(edited_df) + 1) # 행 추가/삭제 시 번호 자동 재정렬
     st.session_state.quote_df = edited_df.copy()
     st.rerun()
 
