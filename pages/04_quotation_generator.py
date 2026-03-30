@@ -256,27 +256,25 @@ html_template = f"""
         </div>
     </div>
     
-    <div style="margin-top: 15px;">
+    <div style="margin-top: 15px; padding-bottom: 10px;">
         <p style="margin-bottom: 5px; font-weight: bold; font-size: 13px;">아래와 같이 견적합니다. (VAT 별도)</p>
-        <div style="border: 2px solid #000; border-bottom: 3px solid #000;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                <thead>
-                    <tr style="background-color: #f0f0f0;">
-                        <th style="padding: 4px; border: 1px solid #000; border-top: none; border-left: none; width: 40px;">번호</th>
-                        <th style="padding: 4px; border: 1px solid #000; border-top: none; width: 150px;">품명</th>
-                        <th style="padding: 4px; border: 1px solid #000; border-top: none;">규격</th>
-                        <th style="padding: 4px; border: 1px solid #000; border-top: none; width: 50px;">단위</th>
-                        <th style="padding: 4px; border: 1px solid #000; border-top: none; width: 50px;">수량</th>
-                        <th style="padding: 4px; border: 1px solid #000; border-top: none; width: 80px;">단가(원)</th>
-                        <th style="padding: 4px; border: 1px solid #000; border-top: none; width: 90px;">금액(원)</th>
-                        <th style="padding: 4px; border: 1px solid #000; border-top: none; border-right: none; width: 70px;">비고</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {tbody_html}
-                </tbody>
-            </table>
-        </div>
+        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 13px;">
+            <thead>
+                <tr style="background-color: #f0f0f0;">
+                    <th style="padding: 4px; border: 1px solid #000; width: 40px;">번호</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 150px;">품명</th>
+                    <th style="padding: 4px; border: 1px solid #000;">규격</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 50px;">단위</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 50px;">수량</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 80px;">단가(원)</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 90px;">금액(원)</th>
+                    <th style="padding: 4px; border: 1px solid #000; width: 70px;">비고</th>
+                </tr>
+            </thead>
+            <tbody>
+                {tbody_html}
+            </tbody>
+        </table>
     </div>
     <div style="height: 20px;"></div>
 </div>
