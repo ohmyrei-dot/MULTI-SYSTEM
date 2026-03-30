@@ -212,13 +212,13 @@ html_template = f"""
     </button>
 </div>
 
-<!-- 바깥 테두리 짤림 방지를 위해 투명한 Wrapper 추가 -->
-<div id="pdf-wrapper" style="max-width: 820px; margin: 0 auto; padding: 5px; background: #fff;">
-    <!-- 실제 테두리가 들어가는 견적서 박스 (이전 양식 완벽 유지) -->
-    <div id="invoice-box" style="font-family: 'Malgun Gothic', sans-serif; padding: 15px 15px 25px 15px; border: 2px solid #333; background: #fff; color: #000; box-sizing: border-box;">
-        <h1 style="text-align: center; letter-spacing: 10px; margin-bottom: 0px;">견 적 서</h1>
-        <p style="text-align: center; margin-top: 0; font-size: 13px; color: #555;">건설안전자재 (안전망, 갱폼수직보호망)</p>
-        
+<!-- 바깥 테두리 짤림 방지를 위해 여백 추가 -->
+<div id="pdf-wrapper" style="max-width: 820px; margin: 0 auto; padding: 10px; background: #fff;">
+    <!-- 💡 CSS border 오류 완벽 방지를 위해 '배경색'으로 가짜 테두리 생성 -->
+    <div style="background-color: #333; padding: 2px;">
+        <div id="invoice-box" style="font-family: 'Malgun Gothic', sans-serif; padding: 15px 15px 25px 15px; background: #fff; color: #000; box-sizing: border-box;">
+            <h1 style="text-align: center; letter-spacing: 10px; margin-bottom: 0px;">견 적 서</h1>
+            <p style="text-align: center; margin-top: 0; font-size: 13px; color: #555;">건설안전자재 (안전망, 갱폼수직보호망)</p>
         <div style="display: flex; justify-content: space-between; margin-top: 15px; font-size: 13px;">
             <div style="width: 45%;">
                 <table style="width: 100%; border-collapse: collapse;">
@@ -280,6 +280,7 @@ html_template = f"""
             </table>
         </div>
     </div>
+    </div> <!-- 가짜 테두리 닫기 -->
 </div>
 
 <script>
