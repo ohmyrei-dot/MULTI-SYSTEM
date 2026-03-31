@@ -225,11 +225,15 @@ html_template = f"""
             
             <div style="display: flex; justify-content: space-between; margin-top: 15px; font-size: 13px;">
                 <div style="width: 48%;">
-                        <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_ref}</td></tr>
-                    <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">연락처</td>
-                        <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_phone}</td></tr>
-                </table>
-                <div style="margin-top: 10px;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold; width: 60px;">수신처</td>
+                            <td style="padding: 3px 0; border-bottom: 1px solid #000;">{f"{q_recipient} 귀하" if q_recipient else ""}</td></tr>
+                        <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">참조</td>
+                            <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_ref}</td></tr>
+                        <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">연락처</td>
+                            <td style="padding: 3px 0; border-bottom: 1px solid #000;">{q_phone}</td></tr>
+                    </table>
+                    <div style="margin-top: 10px;">
                 <p style="margin: 3px 0;"><strong>견적일 : </strong> {q_date.strftime('%Y년 %m월 %d일')}</p>
                 <p style="margin: 3px 0;"><strong>견적명 : </strong> {q_name}</p>
                 <p style="margin: 3px 0; font-size: 15px;"><strong>합계금액 : </strong> <span style="font-size: 16px; font-weight: bold;">₩ {int(total_sum):,}</span> (VAT 별도)</p>
