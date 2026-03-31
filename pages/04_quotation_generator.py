@@ -225,7 +225,7 @@ html_template = f"""
             
             <div style="display: flex; justify-content: space-between; margin-top: 15px; font-size: 13px;">
                 <div style="width: 48%;">
-                    <table style="width: 100%; border-collapse: collapse;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                         <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold; width: 60px;">수신처</td>
                             <td style="padding: 3px 0; border-bottom: 1px solid #000;">{f"{q_recipient} 귀하" if q_recipient else ""}</td></tr>
                         <tr><td style="padding: 3px 0; border-bottom: 1px solid #000; font-weight: bold;">참조</td>
@@ -241,23 +241,23 @@ html_template = f"""
         </div>
         
         <div style="width: 49%;">
-            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000;">
+            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 13px;">
                 <tr>
-                    <td rowspan="4" style="width: 20px; text-align: center; border-right: 1px solid #000; border-bottom: 1px solid #000; writing-mode: vertical-lr; font-weight: bold; font-size: 12px;">공급자</td>
-                    <td style="width: 70px; padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000; font-size: 12px; white-space: nowrap;">사업자번호</td>
-                    <td style="padding: 3px; border-bottom: 1px solid #000; font-size: 12px; white-space: nowrap;">{s_biznum}</td>
+                    <td rowspan="4" style="width: 20px; text-align: center; border-right: 1px solid #000; border-bottom: 1px solid #000; writing-mode: vertical-lr; font-weight: bold;">공급자</td>
+                    <td style="width: 75px; padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000; white-space: nowrap;">사업자번호</td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000; white-space: nowrap;">{s_biznum}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000; font-size: 12px; white-space: nowrap;">상호</td>
-                    <td style="padding: 3px; border-bottom: 1px solid #000; font-size: 12px; white-space: nowrap;"><strong>{s_company}</strong></td>
+                    <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000; white-space: nowrap;">상호</td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000; white-space: nowrap;"><strong>{s_company}</strong></td>
                 </tr>
                 <tr>
-                    <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000; font-size: 12px; white-space: nowrap;">주소</td>
-                    <td style="padding: 3px; border-bottom: 1px solid #000; font-size: 12px; word-break: keep-all;">{addr_html}</td>
+                    <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000; white-space: nowrap;">주소</td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000; word-break: keep-all;">{addr_html}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 3px; border-right: 1px solid #000; font-size: 12px; white-space: nowrap;">연락처</td>
-                    <td style="padding: 3px; font-size: 12px; line-height: 1.3; word-break: keep-all;">{contact_html}</td>
+                    <td style="padding: 3px; border-right: 1px solid #000; white-space: nowrap;">연락처</td>
+                    <td style="padding: 3px; line-height: 1.3; word-break: keep-all;">{contact_html}</td>
                 </tr>
             </table>
         </div>
