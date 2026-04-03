@@ -13,42 +13,32 @@ def process_data(df_raw, ref_date, mode="매출업체"):
     try:
         df = df_raw.copy()
         
-        # 1. 헤더 탐색 (공백/줄바꿈 무시)
-        mask = df.astype(str).replace(r'\s+', '', regex=True).apply(lambda r: r.str.contains('매입/매출|업체구분').any(), axis=1)
-        if mask.any():
-            idx = mask.idxmax()
-            df.columns = df.iloc[idx].astype(str).str.replace(r'\s+', '', regex=True)
-            df = df.iloc[idx+1:].copy()
+        # 1. 헤더 건너뛰기 (결제나 금액 글자가 있는 행 찾기)
+        is_header = df.astype(str).apply(lambda r: r.str.contains('결제|금액').any(), axis=1)
+        if is_header.any():
+            idx = is_header.idxmax()
+            df = df.iloc[idx+1:].reset_index(drop=True)
             
-        # 2. 확실한 컬럼명 매핑 (중복 방지)
-        col_map = {}
-        for c in df.columns:
-            if any(x in c for x in ['구분', '매입', '매출']) and '업체구분' not in col_map.values(): 
-                col_map[c] = '업체구분'
-            elif any(x in c for x in ['금액', '결제', '합계']) and '결제금액' not in col_map.values(): 
-                col_map[c] = '결제금액'
-            elif any(x in c for x in ['업체', '거래처']):
-                if c not in col_map and '업체' not in col_map.values():
-                    col_map[c] = '업체'
-                    
-        df = df.rename(columns=col_map)
+        # 2. 열 순서대로 강제 지정 (1열: 구분, 2열: 업체, 3열: 금액)
+        if len(df.columns) < 3: return pd.DataFrame()
+        df = df.iloc[:, :3]
+        df.columns = ['업체구분', '업체', '결제금액']
         
-        # 3. '업체' 컬럼 누락 대비 (업체구분 바로 옆칸을 업체로)
-        if '업체' not in df.columns and '업체구분' in df.columns:
-            cols = list(df.columns)
-            g_idx = cols.index('업체구분')
-            if g_idx + 1 < len(cols): df.rename(columns={cols[g_idx+1]: '업체'}, inplace=True)
-        
-        if '업체구분' not in df.columns or '업체' not in df.columns or '결제금액' not in df.columns:
-            return pd.DataFrame()
+        # 3. 데이터가 섞이지 않게 확실한 '매입', '매출' 단어만 남기고 빈칸 채우기
+        def clean_cat(x):
+            s = str(x).replace(' ', '')
+            if s in ['매출', '매출처', '매출업체']: return '매출'
+            if s in ['매입', '매입처', '매입업체']: return '매입'
+            return pd.NA
             
-        df['업체구분'] = df['업체구분'].ffill()
+        df['업체구분'] = df['업체구분'].apply(clean_cat).ffill()
         
+        # 4. 모드에 맞게 필터링
         target_str = "매출" if "매출" in mode else "매입"
-        df_target = df[df['업체구분'].astype(str).str.contains(target_str)].copy()
+        df_target = df[df['업체구분'] == target_str].copy()
         
         df_target = df_target.dropna(subset=['업체'])
-        df_target = df_target[~df_target['업체'].astype(str).str.contains('요약')]
+        df_target = df_target[~df_target['업체'].astype(str).str.contains('요약|None|nan', case=False)]
         
         df_target['결제금액'] = df_target['결제금액'].astype(str).str.replace(',', '').str.replace('₩', '').str.strip()
         df_target['금액_백만'] = pd.to_numeric(df_target['결제금액'], errors='coerce') / 1_000_000
