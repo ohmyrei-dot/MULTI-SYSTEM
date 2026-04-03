@@ -11,63 +11,54 @@ st.set_page_config(page_title="미수금/미지급금 관리", page_icon="💰",
 # -----------------------------------------------------------------------------
 def process_data(df_raw, ref_date, mode="매출업체"):
     try:
-        df = df_raw.copy()
-        
-        # 1. 헤더 탐색: '업체'라는 글자가 포함된 행을 찾아 그 아래부터 데이터로 인식
-        header_idx = df[df.astype(str).apply(lambda r: r.str.contains('업체').any(), axis=1)].index
+        header_idx = df_raw[df_raw.apply(lambda r: r.astype(str).str.contains('업체구분').any(), axis=1)].index
         if len(header_idx) > 0:
             idx = header_idx[0]
-            df = df.iloc[idx+1:].reset_index(drop=True)
+            df = df_raw.iloc[idx+1:].copy()
+            df.columns = df_raw.iloc[idx].astype(str).str.strip()
+        else:
+            df = df_raw.copy()
             
-        # 2. 열 순서 강제 지정 (무조건 앞의 3개 열만 사용: 1열=구분, 2열=업체명, 3열=금액)
-        if len(df.columns) < 3: return pd.DataFrame()
-        df = df.iloc[:, :3]
-        df.columns = ['구분', '업체', '금액']
+        df.columns = ['업체구분', '업체', '결제금액'] + list(df.columns[3:])
         
-        # 3. 구분 열 채우기 ('매출', '매입' 단어만 추출하고 나머진 빈칸 처리 후 채우기)
-        def parse_category(val):
-            val_str = str(val).strip()
-            if '매출' in val_str: return '매출'
-            if '매입' in val_str: return '매입'
-            return None
+        # 새 양식 대응: 1열이 비어있어도 요약행 기준으로 매입/매출 자동 분류
+        current_cat = "매입업체"
+        for i in df.index:
+            row_val = str(df.loc[i, '업체구분']) + str(df.loc[i, '업체'])
+            if '매출' in row_val and '요약' not in row_val: current_cat = "매출업체"
+            elif '매입' in row_val and '요약' not in row_val: current_cat = "매입업체"
             
-        df['구분'] = df['구분'].apply(parse_category).ffill()
+            df.loc[i, '업체구분'] = current_cat
+            
+            if '매입' in row_val and '요약' in row_val: 
+                current_cat = "매출업체"
         
-        # 4. 선택한 탭(매출/매입)에 맞게 데이터 필터링
-        target_cat = '매출' if '매출' in mode else '매입'
-        df_target = df[df['구분'] == target_cat].copy()
-        
-        # 빈 셀이나 요약행 제거
+        df_target = df[df['업체구분'] == mode].copy()
         df_target = df_target.dropna(subset=['업체'])
-        df_target = df_target[~df_target['업체'].astype(str).str.contains('요약|None|nan', case=False)]
+        df_target = df_target[~df_target['업체'].astype(str).str.contains('요약')]
         
-        # 금액 숫자로 변환 (콤마, 원, 공백 모두 제거)
-        df_target['금액'] = df_target['금액'].astype(str).str.replace(r'[,₩원\s]', '', regex=True)
-        df_target['금액_백만'] = pd.to_numeric(df_target['금액'], errors='coerce') / 1_000_000
+        df_target['결제금액'] = df_target['결제금액'].astype(str).str.replace(',', '').str.replace('₩', '').str.strip()
+        df_target['금액_백만'] = pd.to_numeric(df_target['결제금액'], errors='coerce') / 1_000_000
         df_target = df_target.dropna(subset=['금액_백만'])
-        df_target = df_target[df_target['금액_백만'] > 0]
 
-        # 업체명과 연월(YYMM) 분리
         def extract_info(val):
             val_str = str(val).strip()
-            # 이름 뒤에 붙은 4자리 숫자 추출 (예: 가온건설2506 -> 가온건설, 2506)
-            match = re.search(r'^(.*?)\s*\(?(\d{4})\)?$', val_str)
+            match = re.search(r'^(.*?)(\d{4})$', val_str)
             if match: return match.group(1).strip(), match.group(2)
             return val_str, None
             
         df_target[['거래처명', 'YYMM']] = df_target['업체'].apply(lambda x: pd.Series(extract_info(x)))
         
-        # 개월 수 계산
         def calc_delay(yymm):
             if not yymm: return 0
             y = 2000 + int(yymm[:2])
             m = int(yymm[2:])
+            # 당월을 1개월 차로 계산하기 위해 + 1 추가
             delay = (ref_date.year - y) * 12 + (ref_date.month - m) + 1
             return delay if delay >= 0 else 0
             
         df_target['연체개월'] = df_target['YYMM'].apply(calc_delay)
         
-        # 업체별 합계 계산
         result = []
         for name, group in df_target.groupby('거래처명'):
             total_amt = group['금액_백만'].sum()
@@ -89,12 +80,8 @@ def process_data(df_raw, ref_date, mode="매출업체"):
                 '_sort': total_amt
             })
             
-        res_df = pd.DataFrame(result)
-        if not res_df.empty:
-            res_df = res_df.sort_values('_sort', ascending=False).drop(columns=['_sort'])
-        return res_df
-        
-    except Exception as e: 
+        return pd.DataFrame(result).sort_values('_sort', ascending=False).drop(columns=['_sort']) if result else pd.DataFrame()
+    except: 
         return pd.DataFrame()
 
 # -----------------------------------------------------------------------------
@@ -102,21 +89,20 @@ def process_data(df_raw, ref_date, mode="매출업체"):
 # -----------------------------------------------------------------------------
 st.title("💰 매입/매출 잔고 관리")
 
-# 기준일자
+# 기준일자 (오류 원인이었던 달력 부분, 안내 문구 추가)
 ref_date = st.date_input("🗓️ 계산 기준일자 (💡 엑셀 데이터 시점에 맞게 변경해야 개월 수가 정확히 계산됩니다)", datetime.date.today())
 st.markdown("---")
 
 tab1, tab2 = st.tabs(["🔴 미수금 (매출업체)", "🔵 미지급금 (매입업체)"])
 
-# 폴더의 accounts.xlsx 파일 자동 로드
+# 폴더의 accounts.xlsx 파일만 자동 로드 (업로드 위젯 삭제)
 df_raw = None
-file_path = 'accounts.xlsx'
-if os.path.exists(file_path): 
-    df_raw = pd.read_excel(file_path, header=None)
+if os.path.exists('accounts.xlsx'): 
+    df_raw = pd.read_excel('accounts.xlsx', header=None)
 
 def show_table(data, title, date_str):
     if data.empty:
-        st.warning(f"표시할 {title} 데이터가 없습니다. 양식을 확인해주세요.")
+        st.warning(f"표시할 {title} 데이터가 없습니다.")
         return
     
     st.markdown(f"<div style='text-align: right; font-weight: bold;'>{date_str}</div>", unsafe_allow_html=True)
