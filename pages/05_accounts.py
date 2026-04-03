@@ -13,15 +13,20 @@ def process_data(df_raw, ref_date, mode="매출업체"):
     try:
         df = df_raw.copy()
         
-        # 1. '매입/매출업체' 정확한 글자가 있는 행을 찾아 헤더로 지정
+        # 1. '매입/매출업체' 글자가 있는 행을 찾아 헤더로 지정
         header_idx = df[df.apply(lambda r: r.astype(str).str.contains('매입/매출업체').any(), axis=1)].index
         if len(header_idx) > 0:
             idx = header_idx[0]
-            df.columns = df.iloc[idx].astype(str).str.strip()
+            # 띄어쓰기로 인한 오류를 막기 위해 공백 전부 제거
+            df.columns = df.iloc[idx].astype(str).str.replace(' ', '')
             df = df.iloc[idx+1:].copy()
             
-        # 2. 정확한 컬럼명 변경
-        df = df.rename(columns={'매입/매출업체': '업체구분', '합계 : 결제금액': '결제금액'})
+        # 2. 띄어쓰기 없는 상태의 컬럼명 변경
+        col_map = {}
+        for c in df.columns:
+            if '매입/매출업체' in c: col_map[c] = '업체구분'
+            elif '결제금액' in c: col_map[c] = '결제금액'
+        df = df.rename(columns=col_map)
         
         # 필수 컬럼 검증
         if '업체구분' not in df.columns or '업체' not in df.columns or '결제금액' not in df.columns:
@@ -30,8 +35,9 @@ def process_data(df_raw, ref_date, mode="매출업체"):
         # 병합된 셀(빈칸) 채우기
         df['업체구분'] = df['업체구분'].ffill()
         
-        # 매출/매입 필터링
-        df_target = df[df['업체구분'] == mode].copy()
+        # 매출/매입 필터링 (눈에 안보이는 공백 무시하고 '매출' 단어 포함 여부로 체크)
+        target_str = "매출" if "매출" in mode else "매입"
+        df_target = df[df['업체구분'].astype(str).str.contains(target_str)].copy()
         
         df_target = df_target.dropna(subset=['업체'])
         df_target = df_target[~df_target['업체'].astype(str).str.contains('요약')]
