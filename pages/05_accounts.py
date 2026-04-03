@@ -11,24 +11,28 @@ st.set_page_config(page_title="미수금/미지급금 관리", page_icon="💰",
 # -----------------------------------------------------------------------------
 def process_data(df_raw, ref_date, mode="매출업체"):
     try:
-        # 변경된 양식(첫 번째 행이 컬럼명)에 맞춰 데이터 정리
         df = df_raw.copy()
         
-        # 첫 번째 열에 "매입/매출업체"가 있는 행을 헤더로 지정
+        # 1. '매입/매출업체' 정확한 글자가 있는 행을 찾아 헤더로 지정
         header_idx = df[df.apply(lambda r: r.astype(str).str.contains('매입/매출업체').any(), axis=1)].index
         if len(header_idx) > 0:
             idx = header_idx[0]
             df.columns = df.iloc[idx].astype(str).str.strip()
             df = df.iloc[idx+1:].copy()
-        
-        # 필요한 열 이름이 있는지 확인 후 필터링
-        if '매입/매출업체' not in df.columns or '업체' not in df.columns or '합계 : 결제금액' not in df.columns:
-            return pd.DataFrame() # 열 이름이 다르면 빈 데이터 반환
             
+        # 2. 정확한 컬럼명 변경
         df = df.rename(columns={'매입/매출업체': '업체구분', '합계 : 결제금액': '결제금액'})
+        
+        # 필수 컬럼 검증
+        if '업체구분' not in df.columns or '업체' not in df.columns or '결제금액' not in df.columns:
+            return pd.DataFrame()
+            
+        # 병합된 셀(빈칸) 채우기
         df['업체구분'] = df['업체구분'].ffill()
         
+        # 매출/매입 필터링
         df_target = df[df['업체구분'] == mode].copy()
+        
         df_target = df_target.dropna(subset=['업체'])
         df_target = df_target[~df_target['업체'].astype(str).str.contains('요약')]
         
@@ -76,7 +80,7 @@ def process_data(df_raw, ref_date, mode="매출업체"):
             })
             
         return pd.DataFrame(result).sort_values('_sort', ascending=False).drop(columns=['_sort']) if result else pd.DataFrame()
-    except: 
+    except Exception as e: 
         return pd.DataFrame()
 
 # -----------------------------------------------------------------------------
@@ -84,13 +88,13 @@ def process_data(df_raw, ref_date, mode="매출업체"):
 # -----------------------------------------------------------------------------
 st.title("💰 매입/매출 잔고 관리")
 
-# 기준일자 (오류 원인이었던 달력 부분, 안내 문구 추가)
+# 기준일자
 ref_date = st.date_input("🗓️ 계산 기준일자 (💡 엑셀 데이터 시점에 맞게 변경해야 개월 수가 정확히 계산됩니다)", datetime.date.today())
 st.markdown("---")
 
 tab1, tab2 = st.tabs(["🔴 미수금 (매출업체)", "🔵 미지급금 (매입업체)"])
 
-# 폴더의 accounts.xlsx 파일만 자동 로드 (업로드 위젯 삭제)
+# 폴더의 accounts.xlsx 파일만 자동 로드
 df_raw = None
 if os.path.exists('accounts.xlsx'): 
     df_raw = pd.read_excel('accounts.xlsx', header=None)
