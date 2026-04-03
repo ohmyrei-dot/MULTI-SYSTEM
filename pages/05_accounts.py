@@ -11,18 +11,42 @@ st.set_page_config(page_title="미수금/미지급금 관리", page_icon="💰",
 # -----------------------------------------------------------------------------
 def process_data(df_raw, ref_date, mode="매출업체"):
     try:
-        header_idx = df_raw[df_raw.apply(lambda r: r.astype(str).str.contains('업체구분').any(), axis=1)].index
-        if len(header_idx) > 0:
-            idx = header_idx[0]
-            df = df_raw.iloc[idx+1:].copy()
-            df.columns = df_raw.iloc[idx].astype(str).str.strip()
-        else:
-            df = df_raw.copy()
+        df = df_raw.copy()
+        
+        # 1. 헤더 탐색 (공백/줄바꿈 무시)
+        mask = df.astype(str).replace(r'\s+', '', regex=True).apply(lambda r: r.str.contains('매입/매출|업체구분').any(), axis=1)
+        if mask.any():
+            idx = mask.idxmax()
+            df.columns = df.iloc[idx].astype(str).str.replace(r'\s+', '', regex=True)
+            df = df.iloc[idx+1:].copy()
             
-        df.columns = ['업체구분', '업체', '결제금액'] + list(df.columns[3:])
+        # 2. 확실한 컬럼명 매핑 (중복 방지)
+        col_map = {}
+        for c in df.columns:
+            if any(x in c for x in ['구분', '매입', '매출']) and '업체구분' not in col_map.values(): 
+                col_map[c] = '업체구분'
+            elif any(x in c for x in ['금액', '결제', '합계']) and '결제금액' not in col_map.values(): 
+                col_map[c] = '결제금액'
+            elif any(x in c for x in ['업체', '거래처']):
+                if c not in col_map and '업체' not in col_map.values():
+                    col_map[c] = '업체'
+                    
+        df = df.rename(columns=col_map)
+        
+        # 3. '업체' 컬럼 누락 대비 (업체구분 바로 옆칸을 업체로)
+        if '업체' not in df.columns and '업체구분' in df.columns:
+            cols = list(df.columns)
+            g_idx = cols.index('업체구분')
+            if g_idx + 1 < len(cols): df.rename(columns={cols[g_idx+1]: '업체'}, inplace=True)
+        
+        if '업체구분' not in df.columns or '업체' not in df.columns or '결제금액' not in df.columns:
+            return pd.DataFrame()
+            
         df['업체구분'] = df['업체구분'].ffill()
         
-        df_target = df[df['업체구분'] == mode].copy()
+        target_str = "매출" if "매출" in mode else "매입"
+        df_target = df[df['업체구분'].astype(str).str.contains(target_str)].copy()
+        
         df_target = df_target.dropna(subset=['업체'])
         df_target = df_target[~df_target['업체'].astype(str).str.contains('요약')]
         
@@ -32,7 +56,8 @@ def process_data(df_raw, ref_date, mode="매출업체"):
 
         def extract_info(val):
             val_str = str(val).strip()
-            match = re.search(r'^(.*?)(\d{4})$', val_str)
+            # 괄호 포함 연월 (예: 가온건설(2506), 가온건설 2506) 모두 추출
+            match = re.search(r'^(.*?)\(?(\d{4})\)?$', val_str)
             if match: return match.group(1).strip(), match.group(2)
             return val_str, None
             
@@ -70,7 +95,7 @@ def process_data(df_raw, ref_date, mode="매출업체"):
             })
             
         return pd.DataFrame(result).sort_values('_sort', ascending=False).drop(columns=['_sort']) if result else pd.DataFrame()
-    except: 
+    except Exception as e: 
         return pd.DataFrame()
 
 # -----------------------------------------------------------------------------
@@ -78,13 +103,13 @@ def process_data(df_raw, ref_date, mode="매출업체"):
 # -----------------------------------------------------------------------------
 st.title("💰 매입/매출 잔고 관리")
 
-# 기준일자 (오류 원인이었던 달력 부분, 안내 문구 추가)
+# 기준일자
 ref_date = st.date_input("🗓️ 계산 기준일자 (💡 엑셀 데이터 시점에 맞게 변경해야 개월 수가 정확히 계산됩니다)", datetime.date.today())
 st.markdown("---")
 
 tab1, tab2 = st.tabs(["🔴 미수금 (매출업체)", "🔵 미지급금 (매입업체)"])
 
-# 폴더의 accounts.xlsx 파일만 자동 로드 (업로드 위젯 삭제)
+# 폴더의 accounts.xlsx 파일만 자동 로드
 df_raw = None
 if os.path.exists('accounts.xlsx'): 
     df_raw = pd.read_excel('accounts.xlsx', header=None)
