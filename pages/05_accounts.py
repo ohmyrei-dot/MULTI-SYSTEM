@@ -11,15 +11,21 @@ st.set_page_config(page_title="미수금/미지급금 관리", page_icon="💰",
 # -----------------------------------------------------------------------------
 def process_data(df_raw, ref_date, mode="매출업체"):
     try:
-        header_idx = df_raw[df_raw.apply(lambda r: r.astype(str).str.contains('업체구분').any(), axis=1)].index
+        # 변경된 양식(첫 번째 행이 컬럼명)에 맞춰 데이터 정리
+        df = df_raw.copy()
+        
+        # 첫 번째 열에 "매입/매출업체"가 있는 행을 헤더로 지정
+        header_idx = df[df.apply(lambda r: r.astype(str).str.contains('매입/매출업체').any(), axis=1)].index
         if len(header_idx) > 0:
             idx = header_idx[0]
-            df = df_raw.iloc[idx+1:].copy()
-            df.columns = df_raw.iloc[idx].astype(str).str.strip()
-        else:
-            df = df_raw.copy()
+            df.columns = df.iloc[idx].astype(str).str.strip()
+            df = df.iloc[idx+1:].copy()
+        
+        # 필요한 열 이름이 있는지 확인 후 필터링
+        if '매입/매출업체' not in df.columns or '업체' not in df.columns or '합계 : 결제금액' not in df.columns:
+            return pd.DataFrame() # 열 이름이 다르면 빈 데이터 반환
             
-        df.columns = ['업체구분', '업체', '결제금액'] + list(df.columns[3:])
+        df = df.rename(columns={'매입/매출업체': '업체구분', '합계 : 결제금액': '결제금액'})
         df['업체구분'] = df['업체구분'].ffill()
         
         df_target = df[df['업체구분'] == mode].copy()
