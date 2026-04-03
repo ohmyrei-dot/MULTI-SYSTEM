@@ -69,8 +69,12 @@ def process_data(df_raw, ref_date, mode="매출업체"):
             for d in sorted(group['연체개월'].unique(), reverse=True):
                 amt = group[group['연체개월'] == d]['금액_백만'].sum()
                 if amt > 0:
-                    label = f"{int(d)}개월 초과" if d > 1 else "1개월 이하"
-                    note_parts.append(f"{label}: {amt:.1f}")
+                    # 해당 연체개월의 YYMM 값 가져오기
+                    yymm_val = group[group['연체개월'] == d]['YYMM'].iloc[0]
+                    yymm_str = f"({yymm_val[:2]}.{int(yymm_val[2:])}月)" if yymm_val and len(str(yymm_val)) == 4 else ""
+                    
+                    label = f"{int(d)}개월{yymm_str}"
+                    note_parts.append(f"{label}: <span style='color: red; font-weight: bold;'>{amt:.1f}</span>")
                     
             result.append({
                 '거래처명': name,
