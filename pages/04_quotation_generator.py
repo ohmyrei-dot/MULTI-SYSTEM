@@ -249,7 +249,10 @@ html_template = f"""
                 </tr>
                 <tr>
                     <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000; white-space: nowrap;">상호</td>
-                    <td style="padding: 3px; border-bottom: 1px solid #000; white-space: nowrap;"><strong>{s_company}</strong></td>
+                    <td style="padding: 3px; border-bottom: 1px solid #000; white-space: nowrap; position: relative;">
+                        <strong>{s_company}</strong>
+                        {stamp_img_tag}
+                    </td>
                 </tr>
                 <tr>
                     <td style="padding: 3px; border-right: 1px solid #000; border-bottom: 1px solid #000; white-space: nowrap;">주소</td>
