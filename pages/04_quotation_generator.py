@@ -213,7 +213,8 @@ stamp_path = "stamp.png"
 if os.path.exists(stamp_path):
     with open(stamp_path, "rb") as image_file:
         encoded_string = base64.b64encode(image_file.read()).decode()
-        stamp_img_tag = f'<img src="data:image/png;base64,{encoded_string}" style="position: absolute; width: 55px; height: 55px; top: -15px; left: 70px; opacity: 0.9;" />'
+        # 크기 확대, 위치 조정, 흰 배경 투명화(mix-blend-mode: multiply) 적용
+        stamp_img_tag = f'<img src="data:image/png;base64,{encoded_string}" style="position: absolute; width: 80px; height: 80px; top: -25px; left: 45px; opacity: 0.9; mix-blend-mode: multiply; z-index: 10;" />'
 
 html_template = f"""
 <!-- PDF 변환 라이브러 추가 -->
