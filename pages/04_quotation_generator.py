@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import re
 import datetime
+import os
+import base64
 
 st.set_page_config(page_title="견적서 작성", page_icon="📄", layout="wide")
 
@@ -205,8 +207,16 @@ contact_html = s_contact.replace(" / ", "<br>")
 if s_email:
     contact_html += f"<br>E-mail: {s_email}"
 
+# --- 직인 이미지 처리 ---
+stamp_img_tag = ""
+stamp_path = "stamp.png"
+if os.path.exists(stamp_path):
+    with open(stamp_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode()
+        stamp_img_tag = f'<img src="data:image/png;base64,{encoded_string}" style="position: absolute; width: 55px; height: 55px; top: -15px; left: 70px; opacity: 0.9;" />'
+
 html_template = f"""
-<!-- PDF 변환 라이브러리 추가 -->
+<!-- PDF 변환 라이브러 추가 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
 <div style="text-align: right; max-width: 840px; margin: 0 auto 10px auto;">
