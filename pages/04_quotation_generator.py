@@ -71,7 +71,7 @@ with st.expander("수신처 및 공급자 정보 입력 (클릭해서 열기)", 
         s_company = st.text_input("회사명", "석미세이프")
         s_address = st.text_area("주소", "경기도 남양주시 수동면 남가로 1771-1")
         s_biznum = st.text_input("사업자등록번호", "524-38-00469")
-        s_contact = st.text_input("공급자 연락처", "Tel: 02-495-4584 / Fax: 02-495-4856")
+        s_contact = st.text_input("공급자 연락처", "Tel: 031-559-4854 / Fax: 02-6008-4854")
         s_email = st.text_input("이메일", "sm_safe@naver.com")
 
 st.divider()
