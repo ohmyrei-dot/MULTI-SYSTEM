@@ -59,18 +59,15 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
 
     st.subheader("2. 현재 계산 결과")
 
-    # 결과 지표 표시 (2줄로 나누어 가독성 확보)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("📌 안전망 규격 (폭 x 길이)", f"{width}m x 50m ({area_per_roll}m²)")
+    # 결과 지표 1줄 표시, 총 인건비만 하단 강조
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("📌 규격 (폭x길이)", f"{width}m x 50m")
     c2.metric("안전망 원가 (m²)", f"{int(net_price_m2):,}원 ({net_ratio}%)")
     c3.metric("로프 원가 (m²)", f"{int(rope_price_m2):,}원 ({rope_ratio}%)")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    c4, c5, c6 = st.columns(3)
     c4.metric("추정 인건비 (m²)", f"{int(labor_cost_m2):,}원 ({labor_ratio}%)")
-    c5.metric("💡 1롤 작업 인건비 (총액)", f"{int(labor_cost_total):,}원 / 롤")
-    c6.metric("최종 매입단가 (m²)", f"{int(final_price_m2):,}원 (100%)")
+    c5.metric("최종 매입단가 (m²)", f"{int(final_price_m2):,}원 (100%)")
+
+    st.info(f"💡 **1롤({area_per_roll}m²) 작업 인건비 (총액) : {int(labor_cost_total):,}원**")
 
     st.markdown("<br>", unsafe_allow_html=True)
     
