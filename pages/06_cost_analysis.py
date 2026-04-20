@@ -6,6 +6,10 @@ st.set_page_config(page_title="원가분석", page_icon="📊", layout="wide")
 st.title("📊 로프가공 원가분석 (안전망 2cm)")
 st.markdown("매입업체의 해배(m²)당 산출 방식에 맞춰 임가공비를 자동으로 역산합니다.")
 
+# 누적 기록을 저장할 세션 상태 초기화
+if 'cost_history' not in st.session_state:
+    st.session_state['cost_history'] = []
+
 # -----------------------------------------------------------------------------
 # 1. 입력 섹션
 # -----------------------------------------------------------------------------
@@ -50,16 +54,51 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     else:
         net_ratio = rope_ratio = labor_ratio = 0
 
-    st.subheader(f"2. 해배(m²)당 원가 분석 결과 (폭 {width}m 기준)")
+    st.subheader("2. 현재 계산 결과")
 
-    # 핵심 지표 표시 (가로 나열 및 괄호 안에 비율 추가)
-    c1, c2, c3, c4 = st.columns(4)
+    # 폭(m)도 결과 행에 같이 배치해서 가독성 높임
+    c0, c1, c2, c3, c4 = st.columns(5)
+    c0.metric("📌 안전망 폭", f"{width} m")
     c1.metric("안전망 원가 (m²)", f"{int(net_price_m2):,}원 ({net_ratio}%)")
     c2.metric("로프 원가 (m²)", f"{int(rope_price_m2):,}원 ({rope_ratio}%)")
     c3.metric("추정 임가공비 (m²)", f"{int(labor_cost_m2):,}원 ({labor_ratio}%)")
     c4.metric("최종 매입단가 (m²)", f"{int(final_price_m2):,}원 (100%)")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.info(f"💡 **계산 근거:** 1롤 면적은 **{area_per_roll}m²** (폭 {width}m x 길이 50m)이며, 로프는 1롤에 **124m**가 소요되는 것을 기준으로 1m²당 가격을 환산했습니다.")
+    
+    # 누적 기록 추가 버튼 (무조건 보이게 수정)
+    if st.button("➕ 현재 계산 결과를 아래 누적표에 저장하기", type="primary", use_container_width=True):
+        st.session_state['cost_history'].append({
+            "폭 (m)": width,
+            "안전망 (원)": int(net_price_m2),
+            "로프 (원)": int(rope_price_m2),
+            "임가공비 (원)": int(labor_cost_m2),
+            "임가공비 비율(%)": labor_ratio,
+            "최종단가 (원)": int(final_price_m2)
+        })
+        st.rerun()
+
 else:
-    st.info("👆 위 입력칸 4곳에 단가와 폭을 모두 입력하시면 원가 분석 결과가 나타납니다.")
+    st.info("👆 위 입력칸 4곳에 단가와 폭을 모두 입력하시면 결과와 [저장] 버튼이 나타납니다.")
+
+st.divider()
+
+# -----------------------------------------------------------------------------
+# 3. 누적 결과 표 (계속 추가되는 곳)
+# -----------------------------------------------------------------------------
+st.subheader("📋 폭(m)별 원가 비교 누적표")
+if st.session_state['cost_history']:
+    df_history = pd.DataFrame(st.session_state['cost_history'])
+    
+    # 금액 콤마 포맷팅용 복사본
+    df_show = df_history.copy()
+    for col in ["안전망 (원)", "로프 (원)", "임가공비 (원)", "최종단가 (원)"]:
+        df_show[col] = df_show[col].apply(lambda x: f"{x:,}")
+
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
+    
+    if st.button("🗑️ 누적 기록 전체 삭제"):
+        st.session_state['cost_history'] = []
+        st.rerun()
+else:
+    st.info("아직 추가된 기록이 없습니다. 위에서 계산 후 파란색 [저장하기] 버튼을 누르세요.")
