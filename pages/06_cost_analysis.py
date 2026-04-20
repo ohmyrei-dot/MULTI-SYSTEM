@@ -69,12 +69,11 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     # 누적 기록 추가 버튼 (무조건 보이게 수정)
     if st.button("➕ 현재 계산 결과를 아래 누적표에 저장하기", type="primary", use_container_width=True):
         st.session_state['cost_history'].append({
-            "폭 (m)": width,
-            "안전망 (원)": int(net_price_m2),
-            "로프 (원)": int(rope_price_m2),
-            "임가공비 (원)": int(labor_cost_m2),
-            "임가공비 비율(%)": labor_ratio,
-            "최종단가 (원)": int(final_price_m2)
+            "폭 (m)": f"{width}",
+            "안전망 (원)": f"{int(net_price_m2):,} ({net_ratio}%)",
+            "로프 (원)": f"{int(rope_price_m2):,} ({rope_ratio}%)",
+            "임가공비 (원)": f"{int(labor_cost_m2):,} ({labor_ratio}%)",
+            "최종단가 (원)": f"{int(final_price_m2):,} (100%)"
         })
         st.rerun()
 
@@ -90,12 +89,17 @@ st.subheader("📋 폭(m)별 원가 비교 누적표")
 if st.session_state['cost_history']:
     df_history = pd.DataFrame(st.session_state['cost_history'])
     
-    # 금액 콤마 포맷팅용 복사본
-    df_show = df_history.copy()
-    for col in ["안전망 (원)", "로프 (원)", "임가공비 (원)", "최종단가 (원)"]:
-        df_show[col] = df_show[col].apply(lambda x: f"{x:,}")
-
-    st.dataframe(df_show, use_container_width=True, hide_index=True)
+    # 완벽한 중앙 정렬을 위해 HTML/CSS 커스텀 테이블로 출력
+    html_table = df_history.to_html(index=False, classes="custom-table", border=0)
+    
+    st.markdown(f"""
+    <style>
+        .custom-table {{ width: 100%; border-collapse: collapse; font-size: 15px; margin-bottom: 20px; }}
+        .custom-table th {{ background-color: #f8f9fa; color: #31333F; font-weight: bold; text-align: center !important; padding: 12px; border-bottom: 2px solid #ddd; }}
+        .custom-table td {{ text-align: center !important; padding: 10px; border-bottom: 1px solid #eee; }}
+    </style>
+    {html_table}
+    """, unsafe_allow_html=True)
     
     if st.button("🗑️ 누적 기록 전체 삭제"):
         st.session_state['cost_history'] = []
