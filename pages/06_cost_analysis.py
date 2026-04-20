@@ -92,14 +92,14 @@ if st.session_state['cost_history']:
     # 완벽한 중앙 정렬을 위해 HTML/CSS 커스텀 테이블로 출력
     html_table = df_history.to_html(index=False, classes="custom-table", border=0)
     
-    st.markdown(f"""
+    css = """
     <style>
-        .custom-table {{ width: 100%; border-collapse: collapse; font-size: 15px; margin-bottom: 20px; }}
-        .custom-table th {{ background-color: #f8f9fa; color: #31333F; font-weight: bold; text-align: center !important; padding: 12px; border-bottom: 2px solid #ddd; }}
-        .custom-table td {{ text-align: center !important; padding: 10px; border-bottom: 1px solid #eee; }}
+        .custom-table { width: 100%; border-collapse: collapse; font-size: 15px; margin-bottom: 20px; }
+        .custom-table th { background-color: #f8f9fa; color: #31333F; font-weight: bold; text-align: center !important; padding: 12px; border-bottom: 2px solid #ddd; }
+        .custom-table td { text-align: center !important; padding: 10px; border-bottom: 1px solid #eee; }
     </style>
-    {html_table}
-    """, unsafe_allow_html=True)
+    """
+    st.markdown(css + html_table, unsafe_allow_html=True)
     
     if st.button("🗑️ 누적 기록 전체 삭제"):
         st.session_state['cost_history'] = []
