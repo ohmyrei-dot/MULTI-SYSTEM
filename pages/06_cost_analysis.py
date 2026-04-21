@@ -77,8 +77,7 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
             "폭 (m)": f"{width}",
             "안전망 (원)": f"{int(net_price_m2):,} ({net_ratio}%)",
             "로프 (원)": f"{int(rope_price_m2):,} ({rope_ratio}%)",
-            "인건비 (원)": f"{int(labor_cost_m2):,} ({labor_ratio}%)",
-            "1롤 인건비 (원)": f"{int(labor_cost_total):,}",
+            "인건비 (원)": f"{int(labor_cost_m2):,} ({labor_ratio}%) / 1롤: {int(labor_cost_total):,}",
             "최종단가 (원)": f"{int(final_price_m2):,} (100%)"
         })
         st.rerun()
