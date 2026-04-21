@@ -94,11 +94,26 @@ st.subheader("📋 폭(m)별 원가 비교 누적표")
 if st.session_state['cost_history']:
     df_history = pd.DataFrame(st.session_state['cost_history'])
     
-    html_table = df_history.to_html(index=False, classes="custom-table", border=0)
+    # 삭제용 체크박스 컬럼 추가
+    df_history.insert(0, '삭제', False)
     
-    css = '<style>.custom-table { width: 100%; border-collapse: collapse; font-size: 15px; margin-bottom: 20px; } .custom-table th { background-color: #f8f9fa; color: #31333F; font-weight: bold; text-align: center !important; padding: 12px; border-bottom: 2px solid #ddd; } .custom-table td { text-align: center !important; padding: 10px; border-bottom: 1px solid #eee; }</style>'
+    # 데이터 에디터 설정 (삭제 열만 수정 가능, 나머지는 읽기 전용)
+    cols_config = {"삭제": st.column_config.CheckboxColumn("선택 삭제", width="small")}
+    disabled_cols = [c for c in df_history.columns if c != '삭제']
     
-    st.markdown(css + html_table, unsafe_allow_html=True)
+    edited_df = st.data_editor(
+        df_history,
+        hide_index=True,
+        use_container_width=True,
+        column_config=cols_config,
+        disabled=disabled_cols
+    )
+    
+    # 삭제 체크된 항목 즉시 반영
+    if edited_df['삭제'].any():
+        keep_indices = edited_df[~edited_df['삭제']].index.tolist()
+        st.session_state['cost_history'] = [st.session_state['cost_history'][i] for i in keep_indices]
+        st.rerun()
     
     if st.button("🗑️ 누적 기록 전체 삭제"):
         st.session_state['cost_history'] = []
