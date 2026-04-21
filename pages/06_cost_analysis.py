@@ -98,7 +98,7 @@ if st.session_state['cost_history']:
     df_history.insert(0, '삭제', False)
     
     # 데이터 에디터 설정 (삭제 열만 수정 가능, 나머지는 읽기 전용)
-    cols_config = {"삭제": st.column_config.CheckboxColumn("선택 삭제", width="small")}
+    cols_config = {"삭제": st.column_config.CheckboxColumn("삭제", width=50)}
     disabled_cols = [c for c in df_history.columns if c != '삭제']
     
     edited_df = st.data_editor(
