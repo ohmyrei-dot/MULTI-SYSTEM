@@ -76,8 +76,8 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
         profit_m2 = sales_price_m2 - final_price_m2
         profit_ratio = round((profit_m2 / sales_price_m2) * 100, 1) if sales_price_m2 > 0 else 0
         
-        # 간격 축소를 위해 컬럼 비율 조정 ([1.2, 2, 6.8] 로 좁게 배치)
-        c6, c7, c8 = st.columns([1.5, 2, 6.5])
+        # 간격 축소를 위해 컬럼 비율 조정 (이익금 칸을 더 넓게 확보하여 잘림 방지)
+        c6, c7, c8 = st.columns([1.5, 3.5, 5])
         c6.metric("최종 판매단가 (m²)", f"{int(sales_price_m2):,}원")
         c7.metric("💰 예상 이익금 (m²)", f"{int(profit_m2):,}원 (이익률: {profit_ratio}%)")
     else:
