@@ -14,7 +14,7 @@ if 'cost_history' not in st.session_state:
 # 1. 입력 섹션
 # -----------------------------------------------------------------------------
 st.subheader("1. 단가 및 규격 입력")
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     net_price_m2 = st.number_input("망 단가 (원/m²)", value=None, step=10, help="안전망 2cm 미가공 해배당 가격")
@@ -23,6 +23,8 @@ with col2:
 with col3:
     final_price_m2 = st.number_input("가공제품 매입단가 (원/m²)", value=None, step=10, help="최종적으로 매입업체에 지불하는 해배당 가격")
 with col4:
+    sales_price_m2 = st.number_input("최종 판매단가 (원/m²)", value=None, step=10, help="고객에게 판매하는 해배당 가격")
+with col5:
     width = st.number_input("안전망 폭 (m)", min_value=0.5, max_value=14.0, value=None, step=0.1, help="길이는 50m로 고정되어 있습니다.")
 
 st.divider()
@@ -30,7 +32,7 @@ st.divider()
 # -----------------------------------------------------------------------------
 # 2. 계산 로직 및 결과 표시
 # -----------------------------------------------------------------------------
-if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 is not None and width is not None:
+if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 is not None and sales_price_m2 is not None and width is not None:
     # 1롤 기준 면적 (폭 * 50m)
     area_per_roll = width * 50
 
@@ -57,6 +59,10 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     else:
         net_ratio = rope_ratio = labor_ratio = 0
 
+    # 이익금 및 이익률 계산 (판매단가 기준)
+    profit_m2 = sales_price_m2 - final_price_m2
+    profit_ratio = round((profit_m2 / sales_price_m2) * 100, 1) if sales_price_m2 > 0 else 0
+
     st.subheader("2. 현재 계산 결과")
 
     # 결과 지표 1줄 표시, 총 인건비만 하단 강조
@@ -65,9 +71,13 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     c2.metric("안전망 원가 (m²)", f"{int(net_price_m2):,}원 ({net_ratio}%)")
     c3.metric("로프 원가 (m²)", f"{int(rope_price_m2):,}원 ({rope_ratio}%)")
     c4.metric("추정 인건비 (m²)", f"{int(labor_cost_m2):,}원 ({labor_ratio}%)")
-    c5.metric("최종 매입단가 (m²)", f"{int(final_price_m2):,}원 (100%)")
+    c5.metric("매입단가 (m²)", f"{int(final_price_m2):,}원 (100%)")
 
     st.info(f"💡 **1롤({area_per_roll}m²) 작업 인건비 (총액) : {int(labor_cost_total):,}원**")
+
+    c6, c7 = st.columns(2)
+    c6.metric("최종 판매단가 (m²)", f"{int(sales_price_m2):,}원")
+    c7.metric("💰 예상 이익금 (m²)", f"{int(profit_m2):,}원 (이익률: {profit_ratio}%)")
 
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -78,12 +88,14 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
             "안전망 (원)": f"{int(net_price_m2):,} ({net_ratio}%)",
             "로프 (원)": f"{int(rope_price_m2):,} ({rope_ratio}%)",
             "인건비 (원)": f"{int(labor_cost_m2):,} ({labor_ratio}%) / 1롤: {int(labor_cost_total):,}",
-            "최종단가 (원)": f"{int(final_price_m2):,} (100%)"
+            "매입단가 (원)": f"{int(final_price_m2):,}",
+            "판매단가 (원)": f"{int(sales_price_m2):,}",
+            "이익금 (원)": f"{int(profit_m2):,} ({profit_ratio}%)"
         })
         st.rerun()
 
 else:
-    st.info("👆 위 입력칸 4곳에 단가와 폭을 모두 입력하시면 결과와 [저장] 버튼이 나타납니다.")
+    st.info("👆 위 입력칸 5곳에 단가와 폭을 모두 입력하시면 결과와 [저장] 버튼이 나타납니다.")
 
 st.divider()
 
@@ -98,7 +110,7 @@ if st.session_state['cost_history']:
     df_history.insert(0, '삭제', False)
     
     # 데이터 에디터 설정 (삭제 열만 수정 가능, 나머지는 읽기 전용)
-    cols_config = {"삭제": st.column_config.CheckboxColumn("삭제", width=50)}
+    cols_config = {"삭제": st.column_config.CheckboxColumn("삭제", width="small")}
     disabled_cols = [c for c in df_history.columns if c != '삭제']
     
     edited_df = st.data_editor(
