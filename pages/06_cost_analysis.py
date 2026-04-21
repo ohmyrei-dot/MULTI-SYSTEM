@@ -17,22 +17,22 @@ st.subheader("1. 단가 및 규격 입력")
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
-    net_price_m2 = st.number_input("망 단가 (원/m²)", value=None, step=10, help="안전망 2cm 미가공 해배당 가격")
-with col2:
-    rope_price_200m = st.number_input("로프 200m 단가 (원/롤)", value=None, step=500, help="PP로프 1롤(200m) 구매 가격")
-with col3:
-    final_price_m2 = st.number_input("가공제품 매입단가 (원/m²)", value=None, step=10, help="최종적으로 매입업체에 지불하는 해배당 가격")
-with col4:
-    sales_price_m2 = st.number_input("최종 판매단가 (원/m²)", value=None, step=10, help="고객에게 판매하는 해배당 가격")
-with col5:
     width = st.number_input("안전망 폭 (m)", min_value=0.5, max_value=14.0, value=None, step=0.1, help="길이는 50m로 고정되어 있습니다.")
+with col2:
+    net_price_m2 = st.number_input("망 단가 (원/m²)", value=None, step=10, help="안전망 2cm 미가공 해배당 가격")
+with col3:
+    rope_price_200m = st.number_input("로프 200m 단가 (원/롤)", value=None, step=500, help="PP로프 1롤(200m) 구매 가격")
+with col4:
+    final_price_m2 = st.number_input("가공제품 매입단가 (원/m²)", value=None, step=10, help="최종적으로 매입업체에 지불하는 해배당 가격")
+with col5:
+    sales_price_m2 = st.number_input("최종 판매단가 (원/m²)", value=None, step=10, help="선택사항: 입력 시 이익금 계산")
 
 st.divider()
 
 # -----------------------------------------------------------------------------
 # 2. 계산 로직 및 결과 표시
 # -----------------------------------------------------------------------------
-if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 is not None and sales_price_m2 is not None and width is not None:
+if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 is not None and width is not None:
     # 1롤 기준 면적 (폭 * 50m)
     area_per_roll = width * 50
 
@@ -59,10 +59,6 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     else:
         net_ratio = rope_ratio = labor_ratio = 0
 
-    # 이익금 및 이익률 계산 (판매단가 기준)
-    profit_m2 = sales_price_m2 - final_price_m2
-    profit_ratio = round((profit_m2 / sales_price_m2) * 100, 1) if sales_price_m2 > 0 else 0
-
     st.subheader("2. 현재 계산 결과")
 
     # 결과 지표 1줄 표시, 총 인건비만 하단 강조
@@ -75,38 +71,42 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
 
     st.info(f"💡 **1롤({area_per_roll}m²) 작업 인건비 (총액) : {int(labor_cost_total):,}원**")
 
-    c6, c7 = st.columns(2)
-    c6.metric("최종 판매단가 (m²)", f"{int(sales_price_m2):,}원")
-    c7.metric("💰 예상 이익금 (m²)", f"{int(profit_m2):,}원 (이익률: {profit_ratio}%)")
+    # 이익금 및 이익률 계산 (판매단가가 있을 때만)
+    if sales_price_m2 is not None:
+        profit_m2 = sales_price_m2 - final_price_m2
+        profit_ratio = round((profit_m2 / sales_price_m2) * 100, 1) if sales_price_m2 > 0 else 0
+        
+        # 간격 축소를 위해 컬럼 비율 조정 ([1.2, 2, 6.8] 로 좁게 배치)
+        c6, c7, c8 = st.columns([1.5, 2, 6.5])
+        c6.metric("최종 판매단가 (m²)", f"{int(sales_price_m2):,}원")
+        c7.metric("💰 예상 이익금 (m²)", f"{int(profit_m2):,}원 (이익률: {profit_ratio}%)")
+    else:
+        st.caption("💡 상단의 '최종 판매단가'를 입력하시면 예상 이익금이 함께 계산됩니다.")
 
     st.markdown("<br>", unsafe_allow_html=True)
     
     # 누적 기록 추가 버튼
     if st.button("➕ 현재 계산 결과를 아래 누적표에 저장하기", type="primary", use_container_width=True):
-        st.session_state['cost_history'].append({
+        hist_data = {
             "폭 (m)": f"{width}",
             "안전망 (원)": f"{int(net_price_m2):,} ({net_ratio}%)",
             "로프 (원)": f"{int(rope_price_m2):,} ({rope_ratio}%)",
             "인건비 (원)": f"{int(labor_cost_m2):,} ({labor_ratio}%) / 1롤: {int(labor_cost_total):,}",
-            "매입단가 (원)": f"{int(final_price_m2):,}",
-            "판매단가 (원)": f"{int(sales_price_m2):,}",
-            "이익금 (원)": f"{int(profit_m2):,} ({profit_ratio}%)"
-        })
+            "매입단가 (원)": f"{int(final_price_m2):,}"
+        }
+        
+        if sales_price_m2 is not None:
+            hist_data["판매단가 (원)"] = f"{int(sales_price_m2):,}"
+            hist_data["이익금 (원)"] = f"{int(profit_m2):,} ({profit_ratio}%)"
+        else:
+            hist_data["판매단가 (원)"] = "-"
+            hist_data["이익금 (원)"] = "-"
+
+        st.session_state['cost_history'].append(hist_data)
         st.rerun()
 
 else:
-    st.info("👆 위 입력칸 5곳에 단가와 폭을 모두 입력하시면 결과와 [저장] 버튼이 나타납니다.")
-
-st.divider()
-
-# -----------------------------------------------------------------------------
-# 3. 누적 결과 표 (계속 추가되는 곳)
-# -----------------------------------------------------------------------------
-st.subheader("📋 폭(m)별 원가 비교 누적표")
-if st.session_state['cost_history']:
-    df_history = pd.DataFrame(st.session_state['cost_history'])
-    
-    # 삭제용 체크박스 컬럼 추가
+    st.info("👆 위 입력칸에 기본 단가와 폭을 모두 입력하시면 결과와 [저장] 버튼이 나타납니다.")
     df_history.insert(0, '삭제', False)
     
     # 데이터 에디터 설정 (삭제 열만 수정 가능, 나머지는 읽기 전용)
