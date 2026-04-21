@@ -107,7 +107,19 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
 
 else:
     st.info("👆 위 입력칸에 기본 단가와 폭을 모두 입력하시면 결과와 [저장] 버튼이 나타납니다.")
-    df_history.insert(0, '삭제', False)
+
+st.divider()
+
+# -----------------------------------------------------------------------------
+# 3. 누적 결과 표 (계속 추가되는 곳)
+# -----------------------------------------------------------------------------
+st.subheader("📋 폭(m)별 원가 비교 누적표")
+if st.session_state['cost_history']:
+    df_history = pd.DataFrame(st.session_state['cost_history'])
+    
+    # 삭제용 체크박스 컬럼 추가 (이미 '삭제' 열이 없으면 추가)
+    if '삭제' not in df_history.columns:
+        df_history.insert(0, '삭제', False)
     
     # 데이터 에디터 설정 (삭제 열만 수정 가능, 나머지는 읽기 전용)
     cols_config = {"삭제": st.column_config.CheckboxColumn("삭제", width="small")}
