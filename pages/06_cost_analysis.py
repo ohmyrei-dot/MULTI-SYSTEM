@@ -10,14 +10,18 @@ st.markdown("매입업체의 해배(m²)당 산출 방식에 맞춰 숨은 **인
 if 'cost_history' not in st.session_state:
     st.session_state['cost_history'] = []
 
+# 분석 모드 선택
+mode = st.radio("📌 분석 모드 선택", ["규격품 (길이 50m 고정)", "제작망 (길이 가변, 다면/달기로프 가공)"], horizontal=True)
+st.divider()
+
 # -----------------------------------------------------------------------------
 # 1. 입력 섹션
 # -----------------------------------------------------------------------------
 st.subheader("1. 단가 및 규격 입력")
-col1, col2, col3, col4, col5 = st.columns(5)
 
+col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
-    width = st.number_input("안전망 폭 (m)", min_value=0.5, max_value=14.0, value=None, step=0.1, help="길이는 50m로 고정되어 있습니다.")
+    width = st.number_input("안전망 폭 (m)", min_value=0.5, max_value=20.0, value=None, step=0.1, help="망의 폭을 입력하세요.")
 with col2:
     net_price_m2 = st.number_input("망 단가 (원/m²)", value=None, step=10, help="안전망 2cm 미가공 해배당 가격")
 with col3:
@@ -27,29 +31,55 @@ with col4:
 with col5:
     sales_price_m2 = st.number_input("최종 판매단가 (원/m²)", value=None, step=10, help="선택사항: 입력 시 이익금 계산")
 
+# 제작망일 경우 추가 옵션
+if "제작망" in mode:
+    st.markdown("<br><b>🛠️ 제작망 상세 옵션</b>", unsafe_allow_html=True)
+    c_len, c_edge, c_hang = st.columns([1, 1, 3])
+    with c_len:
+        length = st.number_input("안전망 길이 (m)", min_value=1.0, value=20.0, step=1.0)
+    with c_edge:
+        edge_type = st.selectbox("테두리 로프", ["2면 (길이방향 양쪽)", "4면 (전체 테두리)"])
+    with c_hang:
+        hang_qty = st.number_input("달기로프 갯수 (개)", min_value=0, value=0, step=1, help="폭 방향으로 들어가는 보강용 달기로프 수량")
+else:
+    length = 50.0
+
 st.divider()
 
 # -----------------------------------------------------------------------------
 # 2. 계산 로직 및 결과 표시
 # -----------------------------------------------------------------------------
 if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 is not None and width is not None:
-    # 1롤 기준 면적 (폭 * 50m)
-    area_per_roll = width * 50
+    # 면적 (폭 * 길이)
+    area_total = width * length
 
     # 로프 1m당 단가
     rope_price_m = rope_price_200m / 200
 
-    # 1롤당 들어가는 로프 총 가격 (양끝면 약 62m * 2 = 124m 소요)
-    rope_cost_per_roll = rope_price_m * 124
+    # 로프 소요량 계산
+    if "규격품" in mode:
+        rope_len_total = 124.0
+        calc_desc = f"1롤(50m) 양끝면 가공 (로프 총 {rope_len_total}m 소요)"
+    else:
+        # 길이방향 로프 (신축성 20% 반영 + 여장 2m)
+        len_rope_1line = (length * 1.2) + 2
+        # 폭방향 로프 & 달기로프 (여장 2m)
+        wid_rope_1line = width + 2
+        
+        edge_len = (len_rope_1line * 2) if "2면" in edge_type else (len_rope_1line * 2 + wid_rope_1line * 2)
+        hang_len = wid_rope_1line * hang_qty
+        rope_len_total = edge_len + hang_len
+        calc_desc = f"테두리 {edge_type} + 달기로프 {hang_qty}개 (로프 총 {rope_len_total:.1f}m 소요)"
 
-    # 해배(m²)당 로프 가격 환산
-    rope_price_m2 = rope_cost_per_roll / area_per_roll
+    # 로프 총 가격 및 해배(m²)당 환산
+    rope_cost_total = rope_price_m * rope_len_total
+    rope_price_m2 = rope_cost_total / area_total
 
     # 해배(m²)당 인건비 (역산) = 최종 매입단가 - 망 단가 - 로프 단가
     labor_cost_m2 = final_price_m2 - net_price_m2 - rope_price_m2
     
-    # 1롤 총 인건비 = 해배당 인건비 * 1롤 면적
-    labor_cost_total = labor_cost_m2 * area_per_roll
+    # 1롤(망 1개) 총 인건비
+    labor_cost_total = labor_cost_m2 * area_total
 
     # 비율 계산 (ZeroDivisionError 방지)
     if final_price_m2 > 0:
@@ -61,22 +91,22 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
 
     st.subheader("2. 현재 계산 결과")
 
-    # 결과 지표 1줄 표시, 총 인건비만 하단 강조
+    # 결과 지표 1줄 표시
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("📌 규격 (폭x길이)", f"{width}m x 50m")
+    c1.metric("📌 규격 (폭x길이)", f"{width}m x {length}m")
     c2.metric("안전망 원가 (m²)", f"{int(net_price_m2):,}원 ({net_ratio}%)")
     c3.metric("로프 원가 (m²)", f"{int(rope_price_m2):,}원 ({rope_ratio}%)")
     c4.metric("추정 인건비 (m²)", f"{int(labor_cost_m2):,}원 ({labor_ratio}%)")
     c5.metric("매입단가 (m²)", f"{int(final_price_m2):,}원 (100%)")
 
-    st.info(f"💡 **1롤({area_per_roll}m²) 작업 인건비 (총액) : {int(labor_cost_total):,}원**")
+    st.info(f"💡 **망 1개({area_total:.1f}m²) 작업 인건비 (총액) : {int(labor_cost_total):,}원** — {calc_desc}")
 
     # 이익금 및 이익률 계산 (판매단가가 있을 때만)
     if sales_price_m2 is not None:
         profit_m2 = sales_price_m2 - final_price_m2
         profit_ratio = round((profit_m2 / sales_price_m2) * 100, 1) if sales_price_m2 > 0 else 0
         
-        # 간격 축소를 위해 컬럼 비율 조정 (이익금 칸을 더 넓게 확보하여 잘림 방지)
+        # 간격 축소를 위해 컬럼 비율 조정 ([1.5, 3.5, 5])
         c6, c7, c8 = st.columns([1.5, 3.5, 5])
         c6.metric("최종 판매단가 (m²)", f"{int(sales_price_m2):,}원")
         c7.metric("💰 예상 이익금 (m²)", f"{int(profit_m2):,}원 (이익률: {profit_ratio}%)")
@@ -88,10 +118,11 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     # 누적 기록 추가 버튼
     if st.button("➕ 현재 계산 결과를 아래 누적표에 저장하기", type="primary", use_container_width=True):
         hist_data = {
-            "폭 (m)": f"{width}",
+            "구분": "규격품" if "규격품" in mode else "제작망",
+            "규격": f"{width}x{length}m",
             "안전망 (원)": f"{int(net_price_m2):,} ({net_ratio}%)",
             "로프 (원)": f"{int(rope_price_m2):,} ({rope_ratio}%)",
-            "인건비 (원)": f"{int(labor_cost_m2):,} ({labor_ratio}%) / 1롤: {int(labor_cost_total):,}",
+            "인건비 (원)": f"{int(labor_cost_m2):,} ({labor_ratio}%) / 총액: {int(labor_cost_total):,}",
             "매입단가 (원)": f"{int(final_price_m2):,}"
         }
         
@@ -113,15 +144,13 @@ st.divider()
 # -----------------------------------------------------------------------------
 # 3. 누적 결과 표 (계속 추가되는 곳)
 # -----------------------------------------------------------------------------
-st.subheader("📋 폭(m)별 원가 비교 누적표")
+st.subheader("📋 원가 비교 누적표")
 if st.session_state['cost_history']:
     df_history = pd.DataFrame(st.session_state['cost_history'])
     
-    # 삭제용 체크박스 컬럼 추가 (이미 '삭제' 열이 없으면 추가)
     if '삭제' not in df_history.columns:
         df_history.insert(0, '삭제', False)
     
-    # 데이터 에디터 설정 (삭제 열만 수정 가능, 나머지는 읽기 전용)
     cols_config = {"삭제": st.column_config.CheckboxColumn("삭제", width="small")}
     disabled_cols = [c for c in df_history.columns if c != '삭제']
     
@@ -133,7 +162,6 @@ if st.session_state['cost_history']:
         disabled=disabled_cols
     )
     
-    # 삭제 체크된 항목 즉시 반영
     if edited_df['삭제'].any():
         keep_indices = edited_df[~edited_df['삭제']].index.tolist()
         st.session_state['cost_history'] = [st.session_state['cost_history'][i] for i in keep_indices]
@@ -151,20 +179,35 @@ st.divider()
 # 4. 하단 계산 로직 설명
 # -----------------------------------------------------------------------------
 st.subheader("📝 계산 로직 설명")
-st.markdown("""
-<div style='background-color: #f1f8ff; padding: 20px; border-radius: 10px; line-height: 1.8; font-size: 15px;'>
-    <b>1. 1롤 기준 면적 산출</b><br>
-    - 입력된 폭(m) × 기본 길이(50m) = <b>1롤당 총 해배(m²) 면적</b><br>
-    <br>
-    <b>2. 1롤당 로프 원가 산출</b><br>
-    - 로프 1m당 단가 = 200m 1롤 단가 ÷ 200<br>
-    - <b>1롤당 로프 원가</b> = (로프 1m당 단가) × 124m (가공 시 양끝에 들어가는 평균 로프 소요량)<br>
-    <br>
-    <b>3. 해배(m²)당 로프 원가 환산</b><br>
-    - <b>해배당 로프 원가</b> = 1롤당 로프 원가 ÷ 1롤 면적(m²)<br>
-    <br>
-    <b>4. 인건비(m²) 역산 및 1롤 총 인건비</b><br>
-    - <b>해배당 인건비</b> = 매입업체 최종단가(m²) - 안전망 원가(m²) - 해배당 로프 원가(m²)<br>
-    - <b>1롤 작업 총 인건비</b> = 해배당 인건비 × 1롤 면적(m²)
-</div>
-""", unsafe_allow_html=True)
+
+if "규격품" in mode:
+    st.markdown("""
+    <div style='background-color: #f1f8ff; padding: 20px; border-radius: 10px; line-height: 1.8; font-size: 15px;'>
+        <b>1. 1롤 기준 면적 산출</b><br>
+        - 입력된 폭(m) × 기본 길이(50m) = <b>1롤당 총 해배(m²) 면적</b><br>
+        <br>
+        <b>2. 1롤당 로프 원가 산출</b><br>
+        - 로프 1m당 단가 = 200m 1롤 단가 ÷ 200<br>
+        - <b>1롤당 로프 원가</b> = (로프 1m당 단가) × 124m (가공 시 양끝에 들어가는 평균 로프 소요량)<br>
+        <br>
+        <b>3. 인건비(m²) 역산 및 1롤 총 인건비</b><br>
+        - <b>해배당 인건비</b> = 매입업체 최종단가(m²) - 안전망 원가(m²) - 해배(m²)당 로프 원가<br>
+        - <b>1롤 작업 총 인건비</b> = 해배당 인건비 × 1롤 면적(m²)
+    </div>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <div style='background-color: #fff4f4; padding: 20px; border-radius: 10px; line-height: 1.8; font-size: 15px;'>
+        <b>1. 면적 산출</b><br>
+        - 폭(m) × 길이(m) = <b>총 해배(m²) 면적</b><br>
+        <br>
+        <b>2. 로프 소요량 산출 (신축성 및 여장 반영)</b><br>
+        - 길이방향 로프 (1줄) = <b>(길이 × 1.2) + 2m</b> (신축성 20% 반영 및 양끝 여장 포함)<br>
+        - 폭방향 및 달기로프 (1줄) = <b>폭 + 2m</b> (양끝 여장 포함)<br>
+        - 총 소요량 = 테두리 선택 면적 + (달기로프 1줄 길이 × 달기로프 갯수)<br>
+        <br>
+        <b>3. 인건비(m²) 역산 및 총 인건비</b><br>
+        - <b>해배당 인건비</b> = 매입업체 최종단가(m²) - 안전망 원가(m²) - 해배(m²)당 로프 원가<br>
+        - <b>망 1개 작업 총 인건비</b> = 해배당 인건비 × 면적(m²)
+    </div>
+    """, unsafe_allow_html=True)
