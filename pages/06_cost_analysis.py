@@ -41,8 +41,17 @@ if "제작망" in mode:
         edge_type = st.selectbox("테두리 로프", ["2면 (길이방향 양쪽)", "4면 (전체 테두리)"])
     with c_hang:
         hang_qty = st.number_input("달기로프 갯수 (개)", min_value=0, value=0, step=1, help="폭 방향으로 들어가는 보강용 달기로프 수량")
+        
+    st.markdown("<br><b>🚚 부수적 비용 (선택)</b>", unsafe_allow_html=True)
+    c_qty, c_extra, _ = st.columns([1, 1, 3])
+    with c_qty:
+        prod_qty = st.number_input("제작 갯수 (개)", min_value=1, value=1, step=1, help="운송비 등을 N빵하기 위한 총 수량")
+    with c_extra:
+        extra_cost_total = st.number_input("기타비용 총액 (원)", min_value=0, value=0, step=10000, help="운송비 등 전체 부수적 비용")
 else:
     length = 50.0
+    prod_qty = 1
+    extra_cost_total = 0
 
 st.divider()
 
@@ -60,6 +69,7 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     if "규격품" in mode:
         rope_len_total = 124.0
         calc_desc = f"1롤(50m) 양끝면 가공 (로프 총 {rope_len_total}m 소요)"
+        extra_cost_m2 = 0
     else:
         # 길이방향 로프 (신축성 20% 반영 + 여장 2m)
         len_rope_1line = (length * 1.2) + 2
@@ -70,13 +80,14 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
         hang_len = wid_rope_1line * hang_qty
         rope_len_total = edge_len + hang_len
         calc_desc = f"테두리 {edge_type} + 달기로프 {hang_qty}개 (로프 총 {rope_len_total:.1f}m 소요)"
+        extra_cost_m2 = extra_cost_total / (area_total * prod_qty) if (area_total * prod_qty) > 0 else 0
 
     # 로프 총 가격 및 해배(m²)당 환산
     rope_cost_total = rope_price_m * rope_len_total
     rope_price_m2 = rope_cost_total / area_total
 
-    # 해배(m²)당 인건비 (역산) = 최종 매입단가 - 망 단가 - 로프 단가
-    labor_cost_m2 = final_price_m2 - net_price_m2 - rope_price_m2
+    # 해배(m²)당 인건비 (역산) = 최종 매입단가 - 망 단가 - 로프 단가 - 기타비용 환산액
+    labor_cost_m2 = final_price_m2 - net_price_m2 - rope_price_m2 - extra_cost_m2
     
     # 1롤(망 1개) 총 인건비
     labor_cost_total = labor_cost_m2 * area_total
@@ -100,6 +111,9 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     c5.metric("매입단가 (m²)", f"{int(final_price_m2):,}원 (100%)")
 
     st.info(f"💡 **망 1개({area_total:.1f}m²) 작업 인건비 (총액) : {int(labor_cost_total):,}원** — {calc_desc}")
+    
+    if "제작망" in mode and extra_cost_total > 0:
+        st.warning(f"🚚 기타비용 총액({extra_cost_total:,}원)을 전체 제작 면적({area_total * prod_qty:,.1f}m²)으로 나눈 **해배당 {int(extra_cost_m2):,}원**이 매입단가에서 추가로 제외되어 순수 인건비가 산출되었습니다.")
 
     # 이익금 및 이익률 계산 (판매단가가 있을 때만)
     if sales_price_m2 is not None:
@@ -209,7 +223,7 @@ else:
         - <b>해배당 로프 원가</b> = (총 소요량 × 로프 1m당 단가) ÷ 총 해배(m²) 면적<br>
         <br>
         <b>3. 인건비(m²) 역산 및 총 인건비</b><br>
-        - <b>해배당 인건비</b> = 매입업체 최종단가(m²) - 안전망 원가(m²) - 해배당 로프 원가(m²)<br>
+        - <b>해배당 인건비</b> = 매입업체 최종단가(m²) - 안전망 원가(m²) - 해배당 로프 원가(m²) <span style='color:#d32f2f; font-weight:bold;'>- (기타비용 해배당 환산액)</span><br>
         - <b>망 1개 작업 총 인건비</b> = 해배당 인건비 × 면적(m²)
     </div>
     """, unsafe_allow_html=True)
