@@ -97,13 +97,19 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
         net_ratio = round((net_price_m2 / final_price_m2) * 100, 1)
         rope_ratio = round((rope_price_m2 / final_price_m2) * 100, 1)
         labor_ratio = round((labor_cost_m2 / final_price_m2) * 100, 1)
+        extra_ratio = round((extra_cost_m2 / final_price_m2) * 100, 1)
     else:
-        net_ratio = rope_ratio = labor_ratio = 0
+        net_ratio = rope_ratio = labor_ratio = extra_ratio = 0
 
     st.subheader("2. 현재 계산 결과")
 
     # 결과 지표 1줄 표시
-    c1, c2, c3, c4, c5 = st.columns(5)
+    if extra_cost_m2 > 0:
+        c1, c2, c3, c_ex, c4, c5 = st.columns(6)
+        c_ex.metric("기타비용 (m²)", f"{int(extra_cost_m2):,}원 ({extra_ratio}%)")
+    else:
+        c1, c2, c3, c4, c5 = st.columns(5)
+        
     c1.metric("📌 규격 (폭x길이)", f"{width}m x {length}m")
     c2.metric("안전망 원가 (m²)", f"{int(net_price_m2):,}원 ({net_ratio}%)")
     c3.metric("로프 원가 (m²)", f"{int(rope_price_m2):,}원 ({rope_ratio}%)")
