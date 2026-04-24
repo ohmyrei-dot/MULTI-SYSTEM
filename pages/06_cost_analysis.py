@@ -142,6 +142,7 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
             "규격": f"{width}x{length}m",
             "안전망 (원)": f"{int(net_price_m2):,} ({net_ratio}%)",
             "로프 (원)": f"{int(rope_price_m2):,} ({rope_ratio}%)",
+            "기타비용 (원)": f"{int(extra_cost_m2):,} ({extra_ratio}%)" if extra_cost_m2 > 0 else "-",
             "인건비 (원)": f"{int(labor_cost_m2):,} ({labor_ratio}%) / 총액: {int(labor_cost_total):,}",
             "매입단가 (원)": f"{int(final_price_m2):,}"
         }
@@ -152,6 +153,12 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
         else:
             hist_data["판매단가 (원)"] = "-"
             hist_data["이익금 (원)"] = "-"
+            
+        # 비고란 추가
+        if "제작망" in mode and extra_cost_total > 0:
+            hist_data["비고"] = f"제작 {prod_qty}개 / 기타총액 {int(extra_cost_total):,}원"
+        else:
+            hist_data["비고"] = "-"
 
         st.session_state['cost_history'].append(hist_data)
         st.rerun()
