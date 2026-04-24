@@ -67,14 +67,14 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
 
     # 로프 소요량 계산
     if "규격품" in mode:
-        rope_len_total = 124.0
+        rope_len_total = 126.0
         calc_desc = f"1롤(50m) 양끝면 가공 (로프 총 {rope_len_total}m 소요)"
         extra_cost_m2 = 0
     else:
-        # 길이방향 로프 (신축성 20% 반영 + 여장 2m)
-        len_rope_1line = (length * 1.2) + 2
-        # 폭방향 로프 & 달기로프 (여장 2m)
-        wid_rope_1line = width + 2
+        # 길이방향 로프 (신축성 20% 반영 + 여장 3m)
+        len_rope_1line = (length * 1.2) + 3
+        # 폭방향 로프 & 달기로프 (여장 3m)
+        wid_rope_1line = width + 3
         
         edge_len = (len_rope_1line * 2) if "2면" in edge_type else (len_rope_1line * 2 + wid_rope_1line * 2)
         hang_len = wid_rope_1line * hang_qty
@@ -215,7 +215,7 @@ if "규격품" in mode:
         <br>
         <b>2. 로프 원가 및 해배(m²)당 환산</b><br>
         - 로프 1m당 단가 = 200m 1롤 단가 ÷ 200<br>
-        - 1롤당 로프 원가 = (로프 1m당 단가) × 124m (가공 시 양끝에 들어가는 평균 로프 소요량)<br>
+        - 1롤당 로프 원가 = (로프 1m당 단가) × 126m (가공 시 양끝에 들어가는 평균 로프 소요량)<br>
         - <b>해배당 로프 원가</b> = 1롤당 로프 원가 ÷ 1롤 면적(m²)<br>
         <br>
         <b>3. 인건비(m²) 역산 및 1롤 총 인건비</b><br>
@@ -230,8 +230,8 @@ else:
         - 폭(m) × 길이(m) = <b>총 해배(m²) 면적</b><br>
         <br>
         <b>2. 로프 소요량 및 해배(m²)당 환산</b><br>
-        - 길이방향 로프 (1줄) = <b>(길이 × 1.2) + 2m</b> (신축성 20% 반영 및 양끝 여장 포함)<br>
-        - 폭방향 및 달기로프 (1줄) = <b>폭 + 2m</b> (양끝 여장 포함, <span style='color:#d32f2f; font-weight:bold;'>※ 폭/달기로프는 신축성 20% 미적용</span>)<br>
+        - 길이방향 로프 (1줄) = <b>(길이 × 1.2) + 3m</b> (신축성 20% 반영 및 양끝 여장 포함)<br>
+        - 폭방향 및 달기로프 (1줄) = <b>폭 + 3m</b> (양끝 여장 포함, <span style='color:#d32f2f; font-weight:bold;'>※ 폭/달기로프는 신축성 20% 미적용</span>)<br>
         - 총 소요량 = 테두리 선택 면적 + (달기로프 1줄 길이 × 달기로프 갯수)<br>
         - <b>해배당 로프 원가</b> = (총 소요량 × 로프 1m당 단가) ÷ 총 해배(m²) 면적<br>
         <br>
