@@ -14,6 +14,12 @@ if 'cost_history' not in st.session_state:
 mode = st.radio("📌 분석 모드 선택", ["규격품 (길이 50m 고정)", "제작망 (길이 가변, 다면/달기로프 가공)"], horizontal=True)
 st.divider()
 
+# 숫자 포맷팅 함수 (정수는 소수점 없이, 실수는 소수점 1자리까지)
+def fmt(val):
+    if val is None: return "-"
+    val = round(float(val), 1)
+    return f"{int(val):,}" if val.is_integer() else f"{val:,.1f}"
+
 # -----------------------------------------------------------------------------
 # 1. 입력 섹션
 # -----------------------------------------------------------------------------
@@ -106,20 +112,20 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     # 결과 지표 1줄 표시
     if extra_cost_m2 > 0:
         c1, c2, c3, c_ex, c4, c5 = st.columns(6)
-        c_ex.metric("기타비용 (m²)", f"{int(extra_cost_m2):,}원 ({extra_ratio}%)")
+        c_ex.metric("기타비용 (m²)", f"{fmt(extra_cost_m2)}원 ({extra_ratio}%)")
     else:
         c1, c2, c3, c4, c5 = st.columns(5)
         
     c1.metric("📌 규격 (폭x길이)", f"{width}m x {length}m")
-    c2.metric("안전망 원가 (m²)", f"{int(net_price_m2):,}원 ({net_ratio}%)")
-    c3.metric("로프 원가 (m²)", f"{int(rope_price_m2):,}원 ({rope_ratio}%)")
-    c4.metric("추정 인건비 (m²)", f"{int(labor_cost_m2):,}원 ({labor_ratio}%)")
-    c5.metric("매입단가 (m²)", f"{int(final_price_m2):,}원 (100%)")
+    c2.metric("안전망 원가 (m²)", f"{fmt(net_price_m2)}원 ({net_ratio}%)")
+    c3.metric("로프 원가 (m²)", f"{fmt(rope_price_m2)}원 ({rope_ratio}%)")
+    c4.metric("추정 인건비 (m²)", f"{fmt(labor_cost_m2)}원 ({labor_ratio}%)")
+    c5.metric("매입단가 (m²)", f"{fmt(final_price_m2)}원 (100%)")
 
-    st.info(f"💡 **망 1개({area_total:.1f}m²) 작업 인건비 (총액) : {int(labor_cost_total):,}원** — {calc_desc}")
+    st.info(f"💡 **망 1개({area_total:.1f}m²) 작업 인건비 (총액) : {fmt(labor_cost_total)}원** — {calc_desc}")
     
     if "제작망" in mode and extra_cost_total > 0:
-        st.warning(f"🚚 기타비용 총액({extra_cost_total:,}원)을 전체 제작 면적({area_total * prod_qty:,.1f}m²)으로 나눈 **해배당 {int(extra_cost_m2):,}원**이 매입단가에서 추가로 제외되어 순수 인건비가 산출되었습니다.")
+        st.warning(f"🚚 기타비용 총액({fmt(extra_cost_total)}원)을 전체 제작 면적({area_total * prod_qty:,.1f}m²)으로 나눈 **해배당 {fmt(extra_cost_m2)}원**이 매입단가에서 추가로 제외되어 순수 인건비가 산출되었습니다.")
 
     # 이익금 및 이익률 계산 (판매단가가 있을 때만)
     if sales_price_m2 is not None:
@@ -128,8 +134,8 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
         
         # 간격 축소를 위해 컬럼 비율 조정 ([1.5, 3.5, 5])
         c6, c7, c8 = st.columns([1.5, 3.5, 5])
-        c6.metric("최종 판매단가 (m²)", f"{int(sales_price_m2):,}원")
-        c7.metric("💰 예상 이익금 (m²)", f"{int(profit_m2):,}원 (이익률: {profit_ratio}%)")
+        c6.metric("최종 판매단가 (m²)", f"{fmt(sales_price_m2)}원")
+        c7.metric("💰 예상 이익금 (m²)", f"{fmt(profit_m2)}원 (이익률: {profit_ratio}%)")
     else:
         st.caption("💡 상단의 '최종 판매단가'를 입력하시면 예상 이익금이 함께 계산됩니다.")
 
@@ -140,23 +146,23 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
         hist_data = {
             "구분": "규격품" if "규격품" in mode else "제작망",
             "규격": f"{width}x{length}m",
-            "안전망 (원)": f"{int(net_price_m2):,} ({net_ratio}%)",
-            "로프 (원)": f"{int(rope_price_m2):,} ({rope_ratio}%)",
-            "기타비용 (원)": f"{int(extra_cost_m2):,} ({extra_ratio}%)" if extra_cost_m2 > 0 else "-",
-            "인건비 (원)": f"{int(labor_cost_m2):,} ({labor_ratio}%) / 총액: {int(labor_cost_total):,}",
-            "매입단가 (원)": f"{int(final_price_m2):,}"
+            "안전망 (원)": f"{fmt(net_price_m2)} ({net_ratio}%)",
+            "로프 (원)": f"{fmt(rope_price_m2)} ({rope_ratio}%)",
+            "기타비용 (원)": f"{fmt(extra_cost_m2)} ({extra_ratio}%)" if extra_cost_m2 > 0 else "-",
+            "인건비 (원)": f"{fmt(labor_cost_m2)} ({labor_ratio}%) / 총액: {fmt(labor_cost_total)}",
+            "매입단가 (원)": f"{fmt(final_price_m2)}"
         }
         
         if sales_price_m2 is not None:
-            hist_data["판매단가 (원)"] = f"{int(sales_price_m2):,}"
-            hist_data["이익금 (원)"] = f"{int(profit_m2):,} ({profit_ratio}%)"
+            hist_data["판매단가 (원)"] = f"{fmt(sales_price_m2)}"
+            hist_data["이익금 (원)"] = f"{fmt(profit_m2)} ({profit_ratio}%)"
         else:
             hist_data["판매단가 (원)"] = "-"
             hist_data["이익금 (원)"] = "-"
             
         # 비고란 추가
         if "제작망" in mode and extra_cost_total > 0:
-            hist_data["비고"] = f"제작 {prod_qty}개 / 기타총액 {int(extra_cost_total):,}원"
+            hist_data["비고"] = f"제작 {prod_qty}개 / 기타총액 {fmt(extra_cost_total)}원"
         else:
             hist_data["비고"] = "-"
 
