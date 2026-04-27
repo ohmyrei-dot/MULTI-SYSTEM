@@ -153,17 +153,18 @@ try:
             
             df_calc = df_display.apply(unit_calc, axis=1).reset_index()
             
-            # --- 수정: 가격이 완전히 동일하면 규격을 숨겨 병합, 다르면 규격을 살려서 분리 ---
-            def merge_or_keep_spec(group):
+            # --- 수정: 컬럼 유실 오류 방지를 위해 명시적 반복문으로 처리 ---
+            df_list = []
+            for _, group in df_calc.groupby(['품목', note_col, '단위'], dropna=False, sort=False):
                 price_cols = [c for c in group.columns if c not in ['품목', '규격', note_col, '단위']]
                 if len(group[price_cols].drop_duplicates()) == 1:
                     first_row = group.iloc[[0]].copy()
                     first_row['규격'] = "" 
-                    return first_row
+                    df_list.append(first_row)
                 else:
-                    return group
+                    df_list.append(group)
                     
-            df_calc = df_calc.groupby(['품목', note_col, '단위'], group_keys=False, sort=False).apply(merge_or_keep_spec)
+            df_calc = pd.concat(df_list, ignore_index=True)
             df_display = df_calc.set_index(['품목', '규격', note_col, '단위'])
 
         st.divider()
