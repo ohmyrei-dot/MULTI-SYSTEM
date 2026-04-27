@@ -150,8 +150,21 @@ try:
                 elif '와이어클립' in iname:
                     m = re.search(r'(\d+)', spec); div = float(m.group(1)) if m else 1.0
                 return row.apply(lambda x: x / div if pd.notnull(x) and isinstance(x, (int, float)) and div != 0 else x)
-            df_calc = df_display.apply(unit_calc, axis=1).reset_index().drop(columns=['규격'])
-            df_display = df_calc.groupby(['품목', note_col, '단위'], sort=False).first()
+            
+            df_calc = df_display.apply(unit_calc, axis=1).reset_index()
+            
+            # --- 수정: 가격이 완전히 동일하면 규격을 숨겨 병합, 다르면 규격을 살려서 분리 ---
+            def merge_or_keep_spec(group):
+                price_cols = [c for c in group.columns if c not in ['품목', '규격', note_col, '단위']]
+                if len(group[price_cols].drop_duplicates()) == 1:
+                    first_row = group.iloc[[0]].copy()
+                    first_row['규격'] = "" 
+                    return first_row
+                else:
+                    return group
+                    
+            df_calc = df_calc.groupby(['품목', note_col, '단위'], group_keys=False, sort=False).apply(merge_or_keep_spec)
+            df_display = df_calc.set_index(['품목', '규격', note_col, '단위'])
 
         st.divider()
         sort_opts = ["선택 안함"]
@@ -159,7 +172,9 @@ try:
         for idx in df_display.index:
             label = str(idx)
             if isinstance(idx, tuple):
-                label = f"{idx[0]} ({idx[1]})" if price_mode=="단위당 단가" else f"{idx[0]} ({idx[2]})"
+                p_name, p_spec, p_note, p_unit = idx
+                parts = [p for p in [p_spec, p_note] if str(p).strip() and str(p) != 'nan']
+                label = f"{p_name}" + (f" ({' / '.join(parts)})" if parts else "")
             sort_opts.append(label); row_map[label] = idx
 
         cs1, cs2 = st.columns([2, 1])
@@ -185,7 +200,6 @@ try:
 
         st.subheader("📋 업체별 현재 매출단가 비교")
         
-        # 품목, 규격, 비고를 모두 합쳐서 단일 인덱스(틀고정) 생성
         final_df = df_display.reset_index()
         def combine_info(x):
             res = str(x['품목'])
@@ -195,7 +209,6 @@ try:
             if extras:
                 res += f" ({' / '.join(extras)})"
             
-            # 틀고정 유지하면서 기본 단가일 때만 너비 10% 넓히기 (투명 공백 꼼수)
             if price_mode == "기본 단가":
                 res += "\xa0" * 30 
             return res
@@ -204,7 +217,6 @@ try:
         drop_cols = [c for c in ['품목', '규격', note_col] if c in final_df.columns]
         final_df = final_df.drop(columns=drop_cols).set_index('품목정보')
         
-        # 업체명 칸만 너비 90픽셀로 강제 지정 (인덱스는 안 건드려서 틀고정 유지)
         cols_config = {c: st.column_config.TextColumn(c, width=90) for c in final_df.columns if c != '단위'}
         
         st.dataframe(
