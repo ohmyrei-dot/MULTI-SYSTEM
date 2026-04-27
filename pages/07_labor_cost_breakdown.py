@@ -161,6 +161,22 @@ try:
             df_res = pd.DataFrame(results)
             df_res = df_res.sort_values(by=['두께(mm)', '폭(m)']).reset_index(drop=True)
             
+            # --- 추가된 부분: 한눈에 보는 피벗 테이블 ---
+            st.markdown("#### 📊 폭 vs 로프두께별 [1롤당 순수인건비] 비교표")
+            df_pivot = df_res.pivot_table(index='폭(m)', columns='두께(mm)', values='순수인건비 (1롤)', aggfunc='first')
+            
+            # 인덱스와 컬럼 이름 예쁘게 포맷팅
+            df_pivot.index = df_pivot.index.map(lambda x: f"{x:g}m")
+            df_pivot.columns = [f"{int(c)}mm 가공" for c in df_pivot.columns]
+            
+            # 데이터프레임 출력 (값이 없는 곳은 '-' 처리)
+            st.dataframe(
+                df_pivot.style.format(lambda x: f"🔥 {int(x):,}원" if pd.notna(x) else "-"), 
+                use_container_width=True
+            )
+            
+            st.markdown("<br>#### 📝 상세 분석 데이터", unsafe_allow_html=True)
+            
             # 출력 포맷팅
             df_show = df_res.copy()
             df_show['폭(m)'] = df_show['폭(m)'].apply(lambda x: f"{x:g}m")
