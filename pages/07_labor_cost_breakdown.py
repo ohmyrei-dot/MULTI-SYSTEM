@@ -82,15 +82,15 @@ try:
     
     r1, r2, r3, r4, r5 = st.columns(5)
     with r1:
-        net_price = st.number_input(f"{sel_item} 미가공 (원/m²)", value=default_net_price, step=10)
+        net_price = st.number_input(f"{sel_item} 미가공 (원/m²)", value=float(default_net_price), step=10.0)
     with r2:
-        r_price_6 = st.number_input("6mm 로프 (200m/롤)", value=float(rope_base[6]), step=500)
+        r_price_6 = st.number_input("6mm 로프 (200m/롤)", value=float(rope_base[6]), step=500.0)
     with r3:
-        r_price_8 = st.number_input("8mm 로프 (200m/롤)", value=float(rope_base[8]), step=500)
+        r_price_8 = st.number_input("8mm 로프 (200m/롤)", value=float(rope_base[8]), step=500.0)
     with r4:
-        r_price_10 = st.number_input("10mm 로프 (200m/롤)", value=float(rope_base[10]), step=500)
+        r_price_10 = st.number_input("10mm 로프 (200m/롤)", value=float(rope_base[10]), step=500.0)
     with r5:
-        r_price_12 = st.number_input("12mm 로프 (200m/롤)", value=float(rope_base[12]), step=500)
+        r_price_12 = st.number_input("12mm 로프 (200m/롤)", value=float(rope_base[12]), step=500.0)
 
     rope_prices = {6: r_price_6, 8: r_price_8, 10: r_price_10, 12: r_price_12}
     rope_length_per_roll = 126.0 # 원가분석 시 확정한 50m 기준 1롤 로프 소요량
