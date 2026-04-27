@@ -48,7 +48,11 @@ try:
     # 컬럼 표준화
     vendor_col = next((c for c in df_purch.columns if '매입업체' in str(c)), '매입업체')
     price_col = next((c for c in df_purch.columns if '단가' in str(c)), '현재매입단가')
+    
     note_col = '비고 1' if '비고 1' in df_purch.columns else '비고'
+    if note_col not in df_purch.columns: 
+        df_purch[note_col] = ""
+    df_purch[note_col] = df_purch[note_col].fillna("").astype(str)
     
     if '규격' not in df_purch.columns:
         if '규격1' in df_purch.columns: df_purch['규격'] = df_purch['규격1']
