@@ -6,7 +6,7 @@ import os
 st.set_page_config(page_title="Labor Cost Breakdown", page_icon="🕵️‍♂️", layout="wide")
 
 # -----------------------------------------------------------------------------
-# [데이터 강제 로드 로직] 세션에 데이터가 없으면 불러오기
+# [데이터 강제 로드 로직]
 # -----------------------------------------------------------------------------
 file_path = 'price_list.xlsx'
 if 'df_purch' not in st.session_state:
@@ -34,8 +34,8 @@ try:
                 next((c for c in df_purch.columns if '단가' in c or '금액' in c), '현재매입단가')))
     item_col = next((c for c in df_purch.columns if '품목' in c or '품명' in c), '품목')
     
-    spec_col = next((c for c in df_purch.columns if '규격1' in c), next((c for c in df_purch.columns if '규격' in c), '규격'))
-    note_col = next((c for c in df_purch.columns if '규격2' in c), next((c for c in df_purch.columns if '비고' in c), '비고'))
+    spec_col = '규격1' if '규격1' in df_purch.columns else '규격' if '규격' in df_purch.columns else '규격'
+    note_col = '규격2' if '규격2' in df_purch.columns else '비고1' if '비고1' in df_purch.columns else '비고'
     
     if spec_col not in df_purch.columns: df_purch[spec_col] = ""
     if note_col not in df_purch.columns: df_purch[note_col] = ""
@@ -55,37 +55,19 @@ try:
         sel_item = st.selectbox("🕸️ 안전망 종류 선택", ['안전망2cm', '안전망2cm KS망', '안전망1cm', '안전망1cm KS망'])
 
     st.markdown("<br><b>⚙️ 기준 원자재 단가 (인건비 역산용)</b>", unsafe_allow_html=True)
-    st.caption("해당 업체의 미가공 단가를 자동으로 불러옵니다. (없으면 기본값 적용)")
+    st.caption("해당 업체의 미가공 단가를 자동으로 불러옵니다.")
     
-    # --- [강화된 1단계 필터링] ---
+    # --- 직관적인 품목 필터링 (다른 메뉴와 동일한 방식 적용) ---
     df_v = df_purch[df_purch[vendor_col] == sel_vendor].copy()
     
-    target_cm = "2CM" if "2cm" in sel_item else "1CM"
-    target_ks = "KS" in sel_item
+    # 공백 제거 후 단순 포함 여부로 필터링
+    sel_item_clean = sel_item.replace(" ", "").lower()
+    df_v_matched = df_v[df_v[item_col].astype(str).str.replace(" ", "").str.lower().str.contains(sel_item_clean, na=False)].copy()
 
-    # 1. 1cm/2cm 굵직하게 분류
-    def is_cm_match(row):
-        item_str = str(row[item_col]).replace(" ", "").upper()
-        if target_cm == "2CM": return "1CM" not in item_str
-        else: return "1CM" in item_str
-        
-    df_v_cm = df_v[df_v.apply(is_cm_match, axis=1)].copy()
-
-    # 2. KS 여부 분류 (유연하게 적용)
-    def is_ks_match(row):
-        full_str = (str(row[item_col]) + str(row[spec_col]) + str(row[note_col])).upper()
-        return 'KS' in full_str if target_ks else 'KS' not in full_str
-
-    df_v_matched = df_v_cm[df_v_cm.apply(is_ks_match, axis=1)].copy()
-    
-    # 🚨 만약 KS 필터 적용 후 데이터가 0건이라면, 데이터 누락 방지를 위해 KS 필터를 해제함
-    if df_v_matched.empty:
-        df_v_matched = df_v_cm
-
-    # 미가공 단가 추출
+    # 미가공 단가 추출 (비고란이 비어있거나 '미가공'인 경우)
     def is_net_only(r):
         s = str(r[note_col]).replace(' ', '').lower()
-        return s in ['', '-', 'nan'] or ('미가공' in s and not re.search(r'\d+(?:mm|m/m|파이)', s))
+        return s in ['', '-', 'nan'] or ('미가공' in s and not re.search(r'\d+mm', s))
 
     net_base_row = df_v_matched[df_v_matched.apply(is_net_only, axis=1)]
     
@@ -94,9 +76,10 @@ try:
         base_raw_str = str(net_base_row.iloc[0][price_col]).replace(",", "").replace("원", "").strip()
         try:
             base_raw_price = float(base_raw_str)
+            # 5000원 이상이면 1롤 단위로 간주
             if base_raw_price > 5000:
-                spec_str = str(net_base_row.iloc[0][spec_col]).replace(" ", "").lower()
-                w_match = re.search(r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:m|m/m)?\s*[*xX]', spec_str)
+                spec_str = str(net_base_row.iloc[0][spec_col])
+                w_match = re.search(r'(\d+(?:\.\d+)?)', spec_str)
                 if w_match:
                     area = float(w_match.group(1)) * 50.0
                     default_net_price_m2 = base_raw_price / area
@@ -123,58 +106,34 @@ try:
     # 2. 데이터 추출 및 계산
     st.subheader(f"2. [{sel_vendor}] 인건비 구조 분석 결과")
     
-    # --- [강화된 2단계: 속성 추출 엔진] ---
     def extract_details(row):
-        spec1_str = str(row[spec_col]).replace(" ", "").lower()
-        spec2_str = str(row[note_col]).replace(" ", "").lower()
-        full_str = spec1_str + "|" + spec2_str + "|" + str(row[item_col]).replace(" ", "").lower()
+        spec1_str = str(row[spec_col]).lower()
+        spec2_str = str(row[note_col]).lower()
         
-        # 1. 로프 두께 파악 (매우 관대하게 스캔: 8mm, 8파이, 8가공, 8t 등)
+        # 1. 로프 두께 파악 (8mm가공, 10mm 등)
         thick = None
-        t_match = re.search(r'(12|10|8|6)\s*(?:mm|m/m|파이|가공|t)', full_str)
+        t_match = re.search(r'(\d+)\s*(?:mm|m/m)', spec2_str)
         if t_match:
             thick = int(t_match.group(1))
-        else:
-            for t in [12, 10, 8, 6]:
-                if re.search(rf'(?<!\d){t}(?!\d)', spec2_str):
-                    thick = t
-                    break
-        
-        # 2. 폭 파악 (1*50, 1.5 X 50, 2m 등 모두 대응)
+            
+        # 2. 폭 파악 (1m*50, 1.5 등에서 맨 앞의 숫자 추출)
         width = None
-        w_match = re.search(r'(?<!\d)(\d+(?:\.\d+)?)\s*(?:m|m/m)?\s*[*xX]', spec1_str)
+        w_match = re.search(r'(\d+(?:\.\d+)?)', spec1_str)
         if w_match:
             width = float(w_match.group(1))
-        else:
-            w_match2 = re.search(r'^(?<!\d)(\d+(?:\.\d+)?)(?:m)?$', spec1_str)
-            if w_match2:
-                width = float(w_match2.group(1))
             
         return pd.Series({'width': width, 'thick': thick})
 
     if not df_v_matched.empty:
         details = df_v_matched.apply(extract_details, axis=1)
         df_target = pd.concat([df_v_matched, details], axis=1)
-        # 폭(width)과 두께(thick)가 모두 제대로 찾아진 가공품만 필터
+        # 폭과 두께가 모두 존재하는 행만 필터링
         df_target = df_target[(df_target['width'].notna()) & (df_target['thick'].isin(rope_prices.keys()))]
     else:
         df_target = pd.DataFrame()
 
     if df_target.empty:
-        st.warning(f"선택한 업체({sel_vendor})의 {sel_item} 데이터에서 폭(m)과 로프 두께(mm)를 확인할 수 없습니다.")
-        
-        # 🚨 [디버그 스캔 로그 패널] 🚨
-        with st.expander("🛠️ 데이터 스캔 로그 (어디서 인식이 실패했는지 즉시 확인) - 클릭해서 열어보세요", expanded=True):
-            st.markdown("엑셀의 입력 형태가 미세하게 달라서 추출 엔진이 숫자를 놓쳤습니다. 아래 인식 결과를 확인해주세요.")
-            debug_df = df_v_cm.copy()
-            if not debug_df.empty:
-                debug_details = debug_df.apply(extract_details, axis=1)
-                debug_df['추출된 폭(m)'] = debug_details['width']
-                debug_df['추출된 두께(mm)'] = debug_details['thick']
-                debug_df['단가입력값'] = debug_df[price_col]
-                st.dataframe(debug_df[[item_col, spec_col, note_col, '추출된 폭(m)', '추출된 두께(mm)', '단가입력값']])
-            else:
-                st.write(f"{sel_item} 에 해당하는 기초 데이터 자체가 없습니다.")
+        st.warning(f"선택한 업체({sel_vendor})의 {sel_item} 단가 데이터가 없습니다.")
     else:
         results = []
         for _, row in df_target.iterrows():
@@ -221,12 +180,11 @@ try:
             st.warning("계산 가능한 단가 데이터가 없습니다.")
         else:
             df_res = pd.DataFrame(results)
-            # 중복 시 첫 번째 값 유지 (안전장치)
-            df_res = df_res.drop_duplicates(subset=['폭(m)', '두께(mm)'])
+            df_res = df_res.drop_duplicates(subset=['폭(m)', '두께(mm)'], keep='first')
             df_res = df_res.sort_values(by=['폭(m)', '두께(mm)']).reset_index(drop=True)
             
             # -------------------------------------------------------------
-            # 📊 피벗 테이블 (폭 vs 두께별 인건비)
+            # 📊 피벗 테이블 (폭 vs 두께별 인건비) - Matplotlib 에러 원인 제거
             # -------------------------------------------------------------
             st.markdown("#### 📊 폭 vs 로프두께별 [1롤당 순수인건비] 비교표")
             
@@ -234,9 +192,9 @@ try:
             df_pivot.index = df_pivot.index.map(lambda x: f"{x:g}m")
             df_pivot.columns = [f"{int(c)}mm 가공" for c in df_pivot.columns]
             
+            # background_gradient (Matplotlib) 제거하고 이모지와 값만 포맷팅하여 출력
             st.dataframe(
-                df_pivot.style.format(lambda x: f"🔥 {int(x):,}원" if pd.notna(x) else "-")
-                              .background_gradient(cmap='Reds', axis=None), 
+                df_pivot.style.format(lambda x: f"🔥 {int(x):,}원" if pd.notna(x) else "-"), 
                 use_container_width=True
             )
             
@@ -259,7 +217,7 @@ try:
             
             st.info("""
             💡 **분석 포인트**
-            - 태양산자처럼 해배당 매입단가가 폭에 상관없이 일정하다면, 위의 표에서 **폭이 넓어질수록(아래로 갈수록) 1롤당 순수인건비가 눈덩이처럼 폭발적으로 증가**하는 것을 직관적으로 확인할 수 있습니다.
+            - 매입단가가 폭에 상관없이 일정하다면, 위의 표에서 **폭이 넓어질수록(아래로 갈수록) 1롤당 순수인건비가 눈덩이처럼 폭발적으로 증가**하는 것을 직관적으로 확인할 수 있습니다.
             """)
 
 except Exception as e:
