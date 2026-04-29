@@ -11,7 +11,7 @@ if 'cost_history' not in st.session_state:
     st.session_state['cost_history'] = []
 
 # 분석 모드 선택
-mode = st.radio("📌 분석 모드 선택", ["규격품 (길이 50m 고정)", "제작망 (길이 가변, 다면/달기로프 가공)"], horizontal=True)
+mode = st.radio("📌 분석 모드 선택", ["규격망 (길이 50m 고정)", "제작망 (길이 가변, 다면/달기로프 가공)"], horizontal=True)
 st.divider()
 
 # 숫자 포맷팅 함수 (정수는 소수점 없이, 실수는 소수점 1자리까지)
@@ -37,7 +37,7 @@ with col4:
 with col5:
     sales_price_m2 = st.number_input("최종 판매단가 (원/m²)", value=None, step=10, help="선택사항: 입력 시 이익금 계산")
 
-# 제작망일 경우 추가 옵션
+# 모드별 상세 옵션
 if "제작망" in mode:
     st.markdown("<br><b>🛠️ 제작망 상세 옵션</b>", unsafe_allow_html=True)
     c_len, c_edge, c_hang = st.columns([1, 1, 3])
@@ -55,6 +55,10 @@ if "제작망" in mode:
     with c_extra:
         extra_cost_total = st.number_input("기타비용 총액 (원)", min_value=0, value=0, step=10000, help="운송비 등 전체 부수적 비용")
 else:
+    st.markdown("<br><b>🛠️ 규격망 상세 옵션</b>", unsafe_allow_html=True)
+    c_rope, _ = st.columns([1, 4])
+    with c_rope:
+        rope_len_input = st.number_input("로프 총 소요량 (m)", min_value=1.0, value=126.0, step=1.0, help="1롤(50m) 가공 시 들어가는 실제 로프 총 길이 (기본 126m)")
     length = 50.0
     prod_qty = 1
     extra_cost_total = 0
@@ -72,8 +76,8 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     rope_price_m = rope_price_200m / 200
 
     # 로프 소요량 계산
-    if "규격품" in mode:
-        rope_len_total = 126.0
+    if "규격망" in mode:
+        rope_len_total = rope_len_input
         calc_desc = f"1롤(50m) 양끝면 가공 (로프 총 {rope_len_total}m 소요)"
         extra_cost_m2 = 0
     else:
@@ -144,7 +148,7 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
     # 누적 기록 추가 버튼
     if st.button("➕ 현재 계산 결과를 아래 누적표에 저장하기", type="primary", use_container_width=True):
         hist_data = {
-            "구분": "규격품" if "규격품" in mode else "제작망",
+            "구분": "규격망" if "규격망" in mode else "제작망",
             "규격": f"{width}x{length}m",
             "안전망 (원)": f"{fmt(net_price_m2)} ({net_ratio}%)",
             "로프 (원)": f"{fmt(rope_price_m2)} ({rope_ratio}%)",
@@ -163,6 +167,8 @@ if net_price_m2 is not None and rope_price_200m is not None and final_price_m2 i
         # 비고란 추가
         if "제작망" in mode and extra_cost_total > 0:
             hist_data["비고"] = f"제작 {prod_qty}개 / 기타총액 {fmt(extra_cost_total)}원"
+        elif "규격망" in mode:
+            hist_data["비고"] = f"로프 {rope_len_total}m 소요"
         else:
             hist_data["비고"] = "-"
 
@@ -213,7 +219,7 @@ st.divider()
 # -----------------------------------------------------------------------------
 st.subheader("📝 계산 로직 설명")
 
-if "규격품" in mode:
+if "규격망" in mode:
     st.markdown("""
     <div style='background-color: #f1f8ff; padding: 20px; border-radius: 10px; line-height: 1.8; font-size: 15px;'>
         <b>1. 1롤 기준 면적 산출</b><br>
@@ -221,7 +227,7 @@ if "규격품" in mode:
         <br>
         <b>2. 로프 원가 및 해배(m²)당 환산</b><br>
         - 로프 1m당 단가 = 200m 1롤 단가 ÷ 200<br>
-        - 1롤당 로프 원가 = (로프 1m당 단가) × 126m (가공 시 양끝에 들어가는 평균 로프 소요량)<br>
+        - 1롤당 로프 원가 = (로프 1m당 단가) × 입력된 로프 소요량(기본 126m)<br>
         - <b>해배당 로프 원가</b> = 1롤당 로프 원가 ÷ 1롤 면적(m²)<br>
         <br>
         <b>3. 인건비(m²) 역산 및 1롤 총 인건비</b><br>
