@@ -54,9 +54,12 @@ else:
 
 item_col = next((c for c in df_labor.columns if '품명' in c or '품목' in c), '품명')
 spec_col = next((c for c in df_labor.columns if '규격' in c), '규격')
+note_col = next((c for c in df_labor.columns if '비고' in c), '비고')
+if note_col not in df_labor.columns: df_labor[note_col] = ""
 
 df_labor[item_col] = df_labor[item_col].fillna("").astype(str)
 df_labor[spec_col] = df_labor[spec_col].fillna("").astype(str)
+df_labor[note_col] = df_labor[note_col].fillna("").astype(str)
 
 # -----------------------------------------------------------------------------
 # 메인 화면
@@ -84,11 +87,23 @@ def get_thick(s):
     if m2: return int(m2.group(1))
     return None
 
-# 로프 및 선택된 안전망 데이터 분류
+# 로프 데이터 분류
 df_rope = df_melt[df_melt[item_col].str.contains('로프', na=False)].copy()
 df_rope['thick'] = df_rope[spec_col].apply(get_thick)
 
-df_net = df_melt[df_melt[item_col].str.replace(" ", "").str.lower() == sel_item.replace(" ", "").lower()].copy()
+# 안전망 데이터 분류 (일반과 방염을 철저하게 분리)
+df_net_all = df_melt[df_melt[item_col].str.replace(" ", "").str.contains('안전망2cm', na=False)].copy()
+
+def is_flame(row):
+    return '방염' in str(row[item_col]) + str(row[spec_col]) + str(row[note_col])
+
+df_net_all['is_flame'] = df_net_all.apply(is_flame, axis=1)
+
+if '방염' in sel_item:
+    df_net = df_net_all[df_net_all['is_flame']].copy()
+else:
+    df_net = df_net_all[~df_net_all['is_flame']].copy()
+
 df_net['thick'] = df_net[spec_col].apply(get_thick)
 
 kinds_all = sorted(list(set([k for k in df_net['단가종류'].unique() if k and str(k).lower() != 'nan'])))
@@ -119,7 +134,7 @@ base_idx = [
 
 df_base = pd.DataFrame(0.0, index=base_idx, columns=sel_kinds)
 
-# 데이터 매핑
+# 데이터 매핑 (분리된 방염/일반 데이터를 기반으로 정확히 매핑)
 for _, r in df_net.iterrows():
     t, k, v = r['thick'], r['단가종류'], r['단가']
     if k in df_base.columns:
