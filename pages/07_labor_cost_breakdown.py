@@ -116,7 +116,7 @@ if not sel_kinds:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 원가 기본 설정 표 (가공단가 포함 전체 항목 표시)
+# 원가 기본 설정 표
 # -----------------------------------------------------------------------------
 st.markdown("<br><b>⚙️ 원가 기본 설정 (가공망 매입가, 망 원가, 로프 원가 모두 표시/수정 가능)</b>", unsafe_allow_html=True)
 
@@ -129,12 +129,12 @@ base_idx = [
     '[로프] 6mm(롤)',
     '[로프] 8mm(롤)',
     '[로프] 10mm(롤)',
-    '[로프] 12mm(롤)'
+    '[로프] 12mm(롤]'
 ]
 
 df_base = pd.DataFrame(0.0, index=base_idx, columns=sel_kinds)
 
-# 데이터 매핑 (분리된 방염/일반 데이터를 기반으로 정확히 매핑)
+# 데이터 매칭
 for _, r in df_net.iterrows():
     t, k, v = r['thick'], r['단가종류'], r['단가']
     if k in df_base.columns:
@@ -170,7 +170,6 @@ for t in [6, 8, 10, 12]:
         net_price = edited_base.loc['[안전망] 미가공(m²)', k]
         rope_price = edited_base.loc[f'[로프] {t}mm(롤)', k]
         
-        # 가공단가가 0이면 산출 제외
         if proc_price_m2 <= 0: continue
         
         for w in widths:
@@ -182,7 +181,8 @@ for t in [6, 8, 10, 12]:
             labor_roll = total_sales - net_cost - rope_cost
             labor_m2 = labor_roll / area if area > 0 else 0
             
-            display_text = f"{int(labor_roll):,}원\n({int(labor_m2):,}원/m²)"
+            # 요청하신 대로 '원' 단어를 제외하고 숫자와 콤마만 표시
+            display_text = f"{int(labor_roll):,}\n({int(labor_m2):,}/m²)"
             results.append({'폭(m)': w, '두께(mm)': t, '단가종류': k, '인건비': display_text})
 
 if results:
