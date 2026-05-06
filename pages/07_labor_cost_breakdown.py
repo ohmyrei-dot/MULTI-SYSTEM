@@ -30,8 +30,34 @@ st.title("🕵️‍♂️ Labor Cost Breakdown")
 st.markdown("폭(Width)별, 단가별(기존/신규) 매입단가를 분석하여 **1롤당 순수 가공 인건비 마진**을 비교합니다.")
 
 try:
-    df_labor = st.session_state['df_labor'].copy()
-    df_labor.columns = df_labor.columns.astype(str).str.strip().str.replace(" ", "")
+    df_raw = st.session_state['df_labor'].copy()
+    
+    # 엑셀 상단의 불필요한 제목줄 건너뛰고 '품명' 헤더 자동 찾기
+    header_idx = df_raw[df_raw.apply(lambda r: r.astype(str).str.replace(" ", "").str.contains('품명|품목').any(), axis=1)].index
+    
+    if len(header_idx) > 0:
+        idx = header_idx[0]
+        if idx > 0:
+            # 2단 헤더 병합 (업체명 + 단가)
+            top_row = df_raw.iloc[idx-1].ffill().astype(str).replace('nan', '')
+            bottom_row = df_raw.iloc[idx].astype(str).replace('nan', '')
+            
+            new_cols = []
+            for t, b in zip(top_row, bottom_row):
+                b_clean = b.replace(" ", "")
+                if b_clean in ['품명', '단위', '규격', '품목', '비고']:
+                    new_cols.append(b_clean)
+                else:
+                    new_cols.append((t + "_" + b).replace(" ", ""))
+            
+            df_labor = df_raw.iloc[idx+1:].copy()
+            df_labor.columns = new_cols
+        else:
+            df_labor = df_raw.iloc[idx+1:].copy()
+            df_labor.columns = df_raw.iloc[idx].astype(str).str.replace(" ", "")
+    else:
+        df_labor = df_raw.copy()
+        df_labor.columns = df_labor.columns.astype(str).str.replace(" ", "")
 
     item_col = next((c for c in df_labor.columns if '품명' in c or '품목' in c), '품명')
     spec_col = next((c for c in df_labor.columns if '규격' in c), '규격')
