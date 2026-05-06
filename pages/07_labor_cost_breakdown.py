@@ -67,7 +67,7 @@ c1, c2 = st.columns(2)
 with c1:
     sel_item = st.selectbox("🕸️ 품명 선택", ['안전망2cm(방염)', '안전망2cm'])
 
-# 전체 데이터를 먼저 Melt (로프 데이터도 가져오기 위함)
+# 전체 데이터를 Melt
 id_vars = [c for c in df_labor.columns if '품' in c or '규격' in c or '단위' in c or '업체' in c or '비고' in c or 'Unnamed' in c]
 val_vars = [c for c in df_labor.columns if c not in id_vars]
 
@@ -76,39 +76,67 @@ df_melt['단가'] = pd.to_numeric(df_melt['단가'].astype(str).str.replace(',',
 df_melt = df_melt[df_melt['단가'].notna()]
 df_melt['단가종류'] = df_melt['단가종류'].apply(lambda c: str(c).replace("_단가", "").replace("단가", "").strip())
 
-# 로프 데이터 추출
+# 두께 추출 함수
+def get_thick(s):
+    m = re.search(r'(12|10|8|6)(?:mm|m/m|파이|가공|t)', str(s).lower().replace(" ",""))
+    if m: return int(m.group(1))
+    m2 = re.search(r'(?<!\d)(12|10|8|6)(?!\d)', str(s))
+    if m2: return int(m2.group(1))
+    return None
+
+# 로프 및 선택된 안전망 데이터 분류
 df_rope = df_melt[df_melt[item_col].str.contains('로프', na=False)].copy()
-df_rope['thick'] = df_rope[spec_col].apply(lambda s: int(m.group(1)) if (m := re.search(r'(12|10|8|6)(?:mm|m/m|파이|가공|t)', str(s).lower().replace(" ",""))) else None)
+df_rope['thick'] = df_rope[spec_col].apply(get_thick)
 
-# 선택된 안전망 데이터 추출
 df_net = df_melt[df_melt[item_col].str.replace(" ", "").str.lower() == sel_item.replace(" ", "").lower()].copy()
-df_net['thick'] = df_net[spec_col].apply(lambda s: int(m.group(1)) if (m := re.search(r'(12|10|8|6)(?:mm|m/m|파이|가공|t)', str(s).lower().replace(" ",""))) else None)
+df_net['thick'] = df_net[spec_col].apply(get_thick)
 
-# 단가종류 목록 (기존가, 신규가1 등)
-kinds = [k for k in df_net['단가종류'].unique() if k and k != 'nan']
+kinds_all = sorted(list(set([k for k in df_net['단가종류'].unique() if k and str(k).lower() != 'nan'])))
 
-# --- 원가 기본 설정 표 (단가종류별 매핑) ---
-st.markdown("<br><b>⚙️ 원가 기본 설정 (엑셀 자동 추출, 아래 표에서 직접 숫자 수정 가능)</b>", unsafe_allow_html=True)
+with c2:
+    sel_kinds = st.multiselect("비교할 단가 종류 선택", kinds_all, default=kinds_all)
 
-base_idx = ['미가공(m²)', '6mm로프(롤)', '8mm로프(롤)', '10mm로프(롤)', '12mm로프(롤)']
-df_base = pd.DataFrame(0, index=base_idx, columns=kinds)
+if not sel_kinds:
+    st.warning("단가를 하나 이상 선택해주세요.")
+    st.stop()
 
-# 미가공 원가 세팅
-net_raw = df_net[df_net['thick'].isna() | (df_net[spec_col].str.strip() == '-')]
-for _, r in net_raw.iterrows():
-    if r['단가종류'] in df_base.columns:
-        v = r['단가']
-        df_base.loc['미가공(m²)', r['단가종류']] = v if v < 5000 else v / 50.0
+# -----------------------------------------------------------------------------
+# 원가 기본 설정 표 (가공단가 포함 전체 항목 표시)
+# -----------------------------------------------------------------------------
+st.markdown("<br><b>⚙️ 원가 기본 설정 (가공망 매입가, 망 원가, 로프 원가 모두 표시/수정 가능)</b>", unsafe_allow_html=True)
 
-# 로프 원가 세팅
+base_idx = [
+    '[안전망] 미가공(m²)',
+    '[안전망] 6mm가공(m²)',
+    '[안전망] 8mm가공(m²)',
+    '[안전망] 10mm가공(m²)',
+    '[안전망] 12mm가공(m²)',
+    '[로프] 6mm(롤)',
+    '[로프] 8mm(롤)',
+    '[로프] 10mm(롤)',
+    '[로프] 12mm(롤)'
+]
+
+df_base = pd.DataFrame(0.0, index=base_idx, columns=sel_kinds)
+
+# 데이터 매핑
+for _, r in df_net.iterrows():
+    t, k, v = r['thick'], r['단가종류'], r['단가']
+    if k in df_base.columns:
+        val_m2 = v if v < 5000 else v / 50.0
+        if pd.isna(t) or r[spec_col].strip() == '-':
+            df_base.loc['[안전망] 미가공(m²)', k] = val_m2
+        elif t in [6, 8, 10, 12]:
+            df_base.loc[f'[안전망] {int(t)}mm가공(m²)', k] = val_m2
+
 for _, r in df_rope.iterrows():
     t, k, v = r['thick'], r['단가종류'], r['단가']
-    if t in [6, 8, 10, 12] and k in df_base.columns:
-        df_base.loc[f'{t}mm로프(롤)', k] = v
+    if pd.notna(t) and int(t) in [6, 8, 10, 12] and k in df_base.columns:
+        df_base.loc[f'[로프] {int(t)}mm(롤)', k] = float(v)
 
 c_set1, c_set2 = st.columns([7, 3])
 with c_set1:
-    edited_base = st.data_editor(df_base, use_container_width=True)
+    edited_base = st.data_editor(df_base, use_container_width=True, height=350)
 with c_set2:
     st.markdown("<div style='margin-top: 30px;'></div>", unsafe_allow_html=True)
     rope_length_per_roll = st.number_input("1롤당 로프 소요량 (m)", value=126.0, step=1.0)
@@ -118,22 +146,17 @@ st.divider()
 # -----------------------------------------------------------------------------
 # 계산 및 결과 출력
 # -----------------------------------------------------------------------------
-df_calc = df_net[df_net['thick'].notna()].copy()
+results = []
+widths = [1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 12.0]
 
-if df_calc.empty:
-    st.warning("가공품(6mm, 8mm 등) 단가 데이터가 엑셀에 없습니다.")
-else:
-    results = []
-    widths = [1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 12.0]
-    
-    for _, row in df_calc.iterrows():
-        thick = row['thick']
-        kind = row['단가종류']
-        # 단가종류별 안전망/로프 원가를 편집된 표에서 가져옴
-        net_price = edited_base.loc['미가공(m²)', kind]
-        rope_price = edited_base.loc[f'{thick}mm로프(롤)', kind]
+for t in [6, 8, 10, 12]:
+    for k in sel_kinds:
+        proc_price_m2 = edited_base.loc[f'[안전망] {t}mm가공(m²)', k]
+        net_price = edited_base.loc['[안전망] 미가공(m²)', k]
+        rope_price = edited_base.loc[f'[로프] {t}mm(롤)', k]
         
-        proc_price_m2 = row['단가'] if row['단가'] < 5000 else row['단가'] / 50.0
+        # 가공단가가 0이면 산출 제외
+        if proc_price_m2 <= 0: continue
         
         for w in widths:
             area = w * 50.0
@@ -144,19 +167,18 @@ else:
             labor_roll = total_sales - net_cost - rope_cost
             labor_m2 = labor_roll / area if area > 0 else 0
             
-            # 해배당 단가도 괄호안에 같이 표시
-            display_text = f"{int(labor_roll):,}원\n(m²당 {int(labor_m2):,}원)"
-            
-            results.append({'폭(m)': w, '두께(mm)': thick, '단가종류': kind, '인건비': display_text})
+            display_text = f"{int(labor_roll):,}원\n({int(labor_m2):,}원/m²)"
+            results.append({'폭(m)': w, '두께(mm)': t, '단가종류': k, '인건비': display_text})
 
-    if results:
-        df_res = pd.DataFrame(results)
-        df_pivot = df_res.pivot_table(index='폭(m)', columns=['두께(mm)', '단가종류'], values='인건비', aggfunc='first')
-        df_pivot.index = df_pivot.index.map(lambda x: f"{x:g}m")
-        
-        # 컬럼 포맷팅
-        df_pivot.columns = pd.MultiIndex.from_tuples([(f"{int(c[0])}mm", c[1]) for c in df_pivot.columns])
-        
-        st.subheader("📋 1롤(50m)당 순수인건비 산출 결과")
-        # 줄바꿈(\n) 적용 및 포맷팅 (글씨체 설정)
-        st.dataframe(df_pivot, use_container_width=True, height=600)
+if results:
+    df_res = pd.DataFrame(results)
+    df_pivot = df_res.pivot_table(index='폭(m)', columns=['두께(mm)', '단가종류'], values='인건비', aggfunc='first')
+    df_pivot.index = df_pivot.index.map(lambda x: f"{x:g}m")
+    
+    df_pivot = df_pivot.sort_index(axis=1, level=0)
+    df_pivot.columns = pd.MultiIndex.from_tuples([(f"{int(c[0])}mm", c[1]) for c in df_pivot.columns])
+    
+    st.subheader("📋 1롤(50m)당 순수인건비 산출 결과")
+    st.dataframe(df_pivot, use_container_width=True, height=650)
+else:
+    st.warning("계산 가능한 가공단가(0원 이상)가 설정표에 없습니다.")
