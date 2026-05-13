@@ -49,6 +49,11 @@ def process_data(df_raw, ref_date, mode="매출업체"):
             
         df_target[['거래처명', 'YYMM']] = df_target['업체'].apply(lambda x: pd.Series(extract_info(x)))
         
+        # 비고 컬럼 처리
+        if '비고' not in df_target.columns:
+            df_target['비고'] = ''
+        df_target['비고'] = df_target['비고'].fillna('').astype(str)
+        
         def calc_delay(yymm):
             if not yymm: return 0
             y = 2000 + int(yymm[:2])
@@ -76,11 +81,24 @@ def process_data(df_raw, ref_date, mode="매출업체"):
                     label = f"{int(d)}개월{yymm_str}"
                     note_parts.append(f"{label}: <span style='color: red; font-weight: bold;'>{amt:.1f}</span>")
                     
+            # 비고 내용 추출
+            bigo_parts = []
+            for _, row in group.iterrows():
+                b_val = str(row['비고']).strip()
+                if b_val and b_val.lower() != 'nan':
+                    # '400추가' -> '400만원추가' 로 변환 (이미 '만'이 있으면 건너뜀)
+                    b_val = re.sub(r'(\d+)(추가)', r'\1만원\2', b_val)
+                    
+                    yymm_val = row['YYMM']
+                    yymm_str = f"({yymm_val[:2]}.{int(yymm_val[2:])}月)" if yymm_val and len(str(yymm_val)) == 4 else ""
+                    bigo_parts.append(f"{yymm_str} {b_val}".strip())
+                    
             result.append({
                 '거래처명': name,
                 '총액': round(total_amt, 1),
                 '최대 경과': f"{int(max_delay)}개월" if max_delay > 0 else "1개월",
                 '상세 비고': " / ".join(note_parts),
+                '비고': " / ".join(bigo_parts),
                 '_sort': total_amt
             })
             
@@ -118,11 +136,11 @@ def show_table(data, title, date_str):
         .r-table td {{ border-bottom: 1px solid #eee; padding: 8px 10px; }}
     </style>
     <table class="r-table">
-        <thead><tr><th>거래처명</th><th>금액(백만)</th><th>최대 경과</th><th>상세 내역</th></tr></thead>
+        <thead><tr><th>거래처명</th><th>금액(백만)</th><th>최대 경과</th><th>상세 내역</th><th>비고</th></tr></thead>
         <tbody>
     """
     for _, r in data.iterrows():
-        html += f"<tr><td><b>{r['거래처명']}</b></td><td><b>{r['총액']:.1f}</b></td><td>{r['최대 경과']}</td><td>{r['상세 비고']}</td></tr>"
+        html += f"<tr><td><b>{r['거래처명']}</b></td><td><b>{r['총액']:.1f}</b></td><td>{r['최대 경과']}</td><td>{r['상세 비고']}</td><td style='color: #0066cc; font-weight: bold;'>{r['비고']}</td></tr>"
     html += "</tbody></table>"
     st.markdown(html, unsafe_allow_html=True)
     st.markdown(f"### 🚩 {title} 합계: {data['총액'].sum():.1f} 백만 원")
